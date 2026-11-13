@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.4 - 2026-11-13 (fix)
+- fix: stop console windows flashing in the desktop app (no more cmd.exe start-up trick; windowless GPU check)
+- (released automatically from the commit messages)
+
 ## 1.4.3 - 2026-11-13 (fix)
 - fix: no more popups when you click things - background tasks show as a quiet indicator in the top bar instead of flash messages and corner cards
 - (released automatically from the commit messages)
