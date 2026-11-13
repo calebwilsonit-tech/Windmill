@@ -30,6 +30,16 @@ from . import config, sessions, ui, version
 WEB = config.KIT / "gui"
 BIN = config.KIT / "bin"
 LAUNCHER_SRC = config.KIT / "launcher" / "Windmill.cs"
+INSTALL_LOG = config.LOGS / "app-install.log"
+
+
+def _log(msg):
+    try:
+        config.LOGS.mkdir(parents=True, exist_ok=True)
+        with open(INSTALL_LOG, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    except OSError:
+        pass
 STATE = {"project": None, "last_beat": time.time(), "update": None, "update_at": 0}
 CHATS, TASKS = {}, {}
 LOCK = threading.Lock()
@@ -680,10 +690,14 @@ def build_exe(quiet=False):
         except OSError:
             out = BIN / "Windmill.new.exe"  # the running launcher swaps itself on next start
     icon = WEB / "windmill.ico"
+    _log(f"building {out} with compiler {c}")
     r = subprocess.run([c, "/nologo", "/target:winexe", "/optimize+", f"/out:{out}", f"/win32icon:{icon}",
                         "/r:System.Windows.Forms.dll", "/r:System.Net.Http.dll", str(LAUNCHER_SRC)],
                        capture_output=True, text=True) if c else None
+    if r is not None:
+        _log(f"compiler exit {r.returncode}: {(r.stdout + r.stderr).strip()[-2000:]}")
     if r is None or r.returncode != 0:
+        _log("compiling not possible - downloading the release's Windmill.exe")
         if download_exe(out):
             if not quiet:
                 ui.info("Couldn't build Windmill.exe here, so downloaded the copy GitHub built for this version.")
@@ -699,6 +713,7 @@ def build_exe(quiet=False):
 
 
 def shortcuts():
+    _log("creating shortcuts")
     exe = BIN / "Windmill.exe"
     ps = ("$s = New-Object -ComObject WScript.Shell; "
           f"foreach ($p in @([Environment]::GetFolderPath('Desktop'), '{config.KIT}', "
@@ -706,7 +721,8 @@ def shortcuts():
           "$l = $s.CreateShortcut((Join-Path $p 'Windmill.lnk')); "
           f"$l.TargetPath = '{exe}'; $l.WorkingDirectory = '{config.KIT}'; "
           f"$l.IconLocation = '{exe},0'; $l.Description = 'Windmill - local AI that builds things'; $l.Save() }}")
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
+    _log(f"shortcuts exit {r.returncode} {r.stderr.strip()[-500:]}")
 
 
 def install(quiet=False):

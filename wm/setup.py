@@ -272,6 +272,15 @@ def run_setup(update_llama=False):
         print(f"  Make something new:          {ui.bcyan('windmill new')}")
 
 
+def _app_status():
+    import os
+    from . import gui, version
+    if os.name != "nt":
+        return f"Windmill {version.current()} (app: run  windmill app)"
+    return (f"installed: {gui.BIN / 'Windmill.exe'}" if gui.app_installed()
+            else f"not installed yet - run  windmill app --install  (log: {gui.INSTALL_LOG})")
+
+
 def _android_ok():
     from . import android
     try:
@@ -293,6 +302,7 @@ def doctor():
         ("llama.cpp", (_b := server.find_binary(cfg)) or "not found - run  windmill fix", bool(_b)),
         ("Model", cfg.get("model_name") or "none selected - run windmill models", bool(models.current_model(cfg))),
         ("Model server", "running" if server.health(cfg) else "stopped (starts automatically when needed)", True),
+        ("Desktop app", _app_status(), True),
         ("Library", "ready" if (config.KIT / "corpus" / "corpus.db").exists() else "not downloaded (windmill library fetch)", True),
         ("Android", "ready (.apk builds)" if _android_ok() else "not set up (optional: windmill android setup)", True),
     ]

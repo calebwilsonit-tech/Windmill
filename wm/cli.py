@@ -495,15 +495,18 @@ def ensure_app():
         return
     try:
         from . import gui
-        cfg = config.load()
-        if not gui.app_installed() and not cfg.get("app_setup_done") and gui.LAUNCHER_SRC.exists():
-            if gui.install(quiet=True):
-                ui.ok("The Windmill desktop app is ready - it's on your Desktop and in the Start menu.")
-            config.set_value("app_setup_done", True)  # try once; `windmill app --install` retries any time
+        if not gui.app_installed() and gui.LAUNCHER_SRC.exists():
+            ui.info("Setting up the Windmill desktop app...")
+            if gui.install(quiet=False):
+                ui.ok("The Windmill desktop app is ready - it's on your Desktop, in the Start menu and in the "
+                      "Windmill folder.")
+            else:
+                ui.warn(f"The desktop app couldn't be set up (details: {gui.INSTALL_LOG}). Windmill will try again "
+                        "next time; the command line works normally.")
         else:
             gui.after_update()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        ui.warn(f"(desktop app setup skipped: {e})")
 
 
 def main():
