@@ -1,0 +1,25 @@
+# Releases Windmill automatically on every push to main, so installed copies can update themselves.
+# - Version already bumped (by the Major/Minor/Fix prompt on a developer's PC)?  -> just tag it.
+# - Not bumped (edited on github.com, by a bot, by an AI)?  -> pick the level from the commit
+#   messages ("major:"/"BREAKING" = major, "feat"/"add"/"new" = minor, else fix), bump, tag.
+name: release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  release:
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release
+        run: |
+          git config user.name "windmill-release"
+          git config user.email "windmill-release@users.noreply.github.com"
+          python3 scripts/release.py --ci
+          git push origin HEAD:main --follow-tags
+          git push origin --tags

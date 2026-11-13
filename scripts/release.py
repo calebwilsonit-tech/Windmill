@@ -56,7 +56,21 @@ def ask_level(cur, commits):
             "fix": "fix", "n": None, "no": None}.get(ans, "fix")
 
 
-def release(level, commits, note=""):
+def guess_level(commits):
+    """For releases without a person to ask (GitHub Action): read the commit messages."""
+    text = "\n".join(commits).lower()
+    if "breaking" in text or any(c.lower().startswith(("major:", "major(", "!")) for c in commits):
+        return "major"
+    if any(c.lower().startswith(("feat", "minor:", "add", "new ", "new:")) for c in commits):
+        return "minor"
+    return "fix"
+
+
+def tag_exists(t):
+    return bool(git("tag", "-l", t))
+
+
+def release(level, commits, note="", amend=True):
     cur = version.current()
     new = version.bump(cur, level)
     (KIT / "VERSION").write_text(new + "\n", encoding="utf-8")
@@ -68,11 +82,15 @@ def release(level, commits, note=""):
     cl.write_text(head + "\n" + entry + rest, encoding="utf-8")
     env = {**os.environ, "WINDMILL_RELEASING": "1"}
     subprocess.run(["git", "add", "VERSION", "CHANGELOG.md"], cwd=KIT, env=env)
-    subprocess.run(["git", "commit", "-q", "--amend", "--no-edit", "--no-verify"], cwd=KIT, env=env)
+    if amend:
+        subprocess.run(["git", "commit", "-q", "--amend", "--no-edit", "--no-verify"], cwd=KIT, env=env)
+    else:
+        subprocess.run(["git", "commit", "-q", "--no-verify", "-m", f"release v{new} ({level}) [skip release]"],
+                       cwd=KIT, env=env)
     msg = f"{level}: " + "; ".join(commits)[:900]
     subprocess.run(["git", "tag", "-a", f"v{new}", "-m", msg], cwd=KIT, env=env)
     print(f"  \033[32m✓ Released Windmill {new} ({level}).\033[0m")
-    if git("remote", "get-url", "origin"):
+    if git("remote", "get-url", "origin") and not os.environ.get("GITHUB_ACTIONS"):
         print("  Publishing (installed copies will update themselves)...")
         r = subprocess.run(["git", "push", "-q", "origin", "HEAD", f"v{new}"], cwd=KIT, env=env,
                            capture_output=True, text=True)
@@ -85,6 +103,19 @@ def main():
     if os.environ.get("WINDMILL_RELEASING"):
         return
     args = sys.argv[1:]
+    if "--ci" in args:  # GitHub Action on every push to main
+        cur = version.current()
+        if not tag_exists(f"v{cur}"):
+            subprocess.run(["git", "tag", "-a", f"v{cur}", "-m", f"{guess_level(pending_commits() or ['release'])}: "
+                            f"Windmill {cur}"], cwd=KIT, check=True)
+            print(f"Tagged existing version v{cur}")
+            return
+        commits = pending_commits()
+        if commits:
+            release(guess_level(commits), commits, "(released automatically from the commit messages)", amend=False)
+        else:
+            print("Nothing to release.")
+        return
     if "--hook" in args:
         changed = git("show", "--name-only", "--format=", "HEAD").split()
         if changed and all(c in SHIP_IGNORE for c in changed):
