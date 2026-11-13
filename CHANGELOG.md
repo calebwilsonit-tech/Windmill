@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 - 2026-11-13 (fix)
+- fix: find and repair llama.cpp automatically wherever it was installed
+- (released automatically from the commit messages)
+
 ## 1.1.1 - 2026-11-13 (fix)
 - fix: point updates at the repository's exact name (Windmill)
 - (released automatically from the commit messages)
