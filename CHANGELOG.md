@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1 - 2026-11-13 (fix)
+- fix: point updates at the repository's exact name (Windmill)
+- (released automatically from the commit messages)
+
 ## 1.1.0 - 2026-11-13 (minor)
 - Add benchmark and daily model recommendations
 - (released automatically from the commit messages)
