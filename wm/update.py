@@ -185,7 +185,8 @@ def library_background(args, then_index=True):
     if then_index:
         cmd += f' && "{py}" "{corpus}" index --quiet'
     log = open(config.LOGS / "library-update.log", "a", encoding="utf-8")
-    kw = {"creationflags": 0x00000008 | 0x08000000} if os.name == "nt" else {"start_new_session": True}
+    # hidden console the job's children share - no flashing windows
+    kw = {"creationflags": 0x00000200 | 0x08000000} if os.name == "nt" else {"start_new_session": True}
     subprocess.Popen(cmd, shell=True, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kw)
 
 
@@ -238,7 +239,8 @@ def library_auto_discover(cfg):
     cmd = (f'"{py}" "{corpus}" fetch --update && "{py}" "{corpus}" discover bevy && '
            f'"{py}" "{corpus}" fetch --discovered bevy && "{py}" "{corpus}" index --quiet')
     log = open(config.LOGS / "library-update.log", "a", encoding="utf-8")
-    kw = {"creationflags": 0x00000008 | 0x08000000} if os.name == "nt" else {"start_new_session": True}
+    # hidden console the job's children share - no flashing windows
+    kw = {"creationflags": 0x00000200 | 0x08000000} if os.name == "nt" else {"start_new_session": True}
     subprocess.Popen(cmd, shell=True, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **kw)
 
 

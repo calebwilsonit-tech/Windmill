@@ -22,8 +22,10 @@ if sys.stdout is None or sys.stderr is None:
         _popen_init = subprocess.Popen.__init__
 
         def _hidden(self, *a, **kw):
-            if not kw.get("creationflags"):
-                kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+            flags = kw.get("creationflags", 0) & ~0x00000008  # DETACHED_PROCESS cancels "no window"
+            if not flags & 0x00000010:  # unless a visible console was asked for on purpose
+                flags |= 0x08000000  # CREATE_NO_WINDOW
+            kw["creationflags"] = flags
             _popen_init(self, *a, **kw)
         subprocess.Popen.__init__ = _hidden
 

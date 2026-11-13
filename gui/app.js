@@ -40,7 +40,7 @@ async function refresh() {
   S.state = st;
   $("#project-name").textContent = st.project.split(/[\\/]/).filter(Boolean).pop() || st.project;
   $("#project-name").title = st.project;
-  $("#composer-project").textContent = st.project;
+  $("#composer-project").textContent = st.project.split(/[\\/]/).filter(Boolean).pop() || st.project; $("#composer-folder").title = st.project + " - click to change folder or GitHub repo";
   $("#project-kinds").innerHTML = (st.kinds.length ? st.kinds : ["empty folder"]).map(k => `<span class="badge">${esc(k)}</span>`).join("");
   $("#model-name").textContent = st.model || "No model - choose one";
   $("#model-dot").classList.toggle("on", !!st.server);
@@ -53,7 +53,8 @@ async function refresh() {
   if (st.tip) $("#tip").innerHTML = `💡 ${esc(st.tip.replace(/ - see .*/, ""))} - <a href="#" data-task="get-model">see models</a>`;
 }
 setInterval(refresh, 15000);
-setInterval(() => api("/api/beat", {}), 15000);
+const beat = () => api("/api/beat", { visible: !document.hidden });
+setInterval(beat, 15000); document.addEventListener("visibilitychange", beat); beat();
 
 // ---------------------------------------------------------------- chats list
 async function loadChats() {
@@ -254,10 +255,10 @@ const CHIPS = [["connect", "Connect apps"], ["doctor", "Health check"], ["fix", 
 $("#cmd-chips").innerHTML = CHIPS.map(([c, l]) => `<button class="chip" data-cmd="${esc(c)}">${esc(l)}</button>`).join("");
 $$("#cmd-chips .chip").forEach(b => b.onclick = () => {
   if (b.dataset.cmd.endsWith("plan") || b.dataset.cmd.endsWith("best")) { $("#cmd-input").value = b.dataset.cmd + ' "'; $("#cmd-input").focus(); return; }
-  runTask(splitArgs(b.dataset.cmd));
+  runTask(splitArgs(b.dataset.cmd), { console: true });
 });
 function splitArgs(s) { return (s.match(/"[^"]*"|\S+/g) || []).map(a => a.replace(/^"|"$/g, "")); }
-$("#cmd-run").onclick = () => { const v = $("#cmd-input").value.trim(); if (v) runTask(splitArgs(v.replace(/^windmill\s+/, ""))); };
+$("#cmd-run").onclick = () => { const v = $("#cmd-input").value.trim(); if (v) runTask(splitArgs(v.replace(/^windmill\s+/, "")), { console: true }); };
 $("#cmd-input").onkeydown = e => { if (e.key === "Enter") $("#cmd-run").click(); };
 
 function ansiToHtml(text) {
@@ -287,64 +288,168 @@ function applyCR(text) {  // "\r" rewrites the current line (download progress b
 }
 const strip = t => t.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
 
-function renderConsole() {
-  const pre = $("#console");
-  pre.innerHTML = ansiToHtml(applyCR(S.consoleText));
-  pre.scrollTop = pre.scrollHeight;
-  // prompts -> buttons / input
-  const plain = strip(applyCR(S.consoleText));
-  const tail = plain.slice(-4000);
+// ---------------------------------------------------------------- background tasks
+// Every command runs in the background. A small tray shows what's running, questions pop up as dialogs,
+// and the full command output is one click away ("Details").
+S.tasks = {}; S.consoleTask = null;
+const lastLines = (t, n) => strip(applyCR(t)).split("\n").filter(l => l.trim()).slice(-n);
+
+function promptOf(text) {  // is the program waiting for an answer? -> {question, def, choices, yn}
+  const tail = strip(applyCR(text)).slice(-4000);
+  if (/\n$/.test(tail)) return null;
   const lastLine = tail.split("\n").pop();
-  const choices = $("#console-choices"); choices.innerHTML = "";
-  const row = $("#console-input-row");
-  const waiting = S.task && /^\? .*\S\s*$|\(Y\/n\)|\(y\/N\)/.test(lastLine) && !/\n$/.test(tail);
-  row.classList.toggle("hidden", !waiting);
-  if (!waiting) return;
-  $("#console-prompt").textContent = lastLine.replace(/^\?\s*/, "");
+  if (!/^\? .*\S\s*$|\(Y\/n\)|\(y\/N\)/.test(lastLine)) return null;
+  const yn = /\(Y\/n\)|\(y\/N\)/.test(lastLine);
   const def = (lastLine.match(/\[([^\]]+)\]\s*$/) || [])[1];
-  $("#console-input").placeholder = def ? `Enter for "${def}"` : "";
-  if (/\(Y\/n\)|\(y\/N\)/.test(lastLine)) {
-    choices.innerHTML = `<button data-v="y"><b>Yes</b></button><button data-v="n"><b>No</b></button>`;
-  } else {
+  let choices = [];
+  if (yn) choices = [["y", "Yes"], ["n", "No"]];
+  else {
     const block = tail.split(/── .* ─+\n/).pop();  // the most recent menu
     const opts = [...block.matchAll(/^ {1,4}(\d+|[a-z0-9]) {2}(.+)$/gm)].map(m => [m[1], m[2]]);
-    if (opts.length >= 2 && /Choose|Pick|number|open|1, 2 or 3/i.test(lastLine)) {
-      choices.innerHTML = opts.map(([k, label]) => {
-        const [main, ...rest] = label.split(/ {2,}/);
-        return `<button data-v="${esc(k)}"><b>${esc(main)}</b>${rest.length ? `<small>${esc(rest.join("  "))}</small>` : ""}</button>`;
-      }).join("");
-    }
+    if (opts.length >= 2 && /Choose|Pick|number|open|1, 2 or 3/i.test(lastLine)) choices = opts;
   }
-  $$("button", choices).forEach(b => b.onclick = () => taskInput(b.dataset.v));
+  return { question: lastLine.replace(/^\?\s*/, "").replace(/\s*\(Y\/n\)|\s*\(y\/N\)/, ""), def, choices, yn };
+}
+const choiceButtons = choices => choices.map(([k, label]) => {
+  const [main, ...rest] = label.split(/ {2,}/);
+  return `<button data-v="${esc(k)}"><b>${esc(main)}</b>${rest.length ? `<small>${esc(rest.join("  "))}</small>` : ""}</button>`;
+}).join("");
+
+function renderConsole() {
+  const t = S.tasks[S.consoleTask];
+  const text = t ? t.text : S.consoleText;
+  const pre = $("#console");
+  pre.innerHTML = ansiToHtml(applyCR(text));
+  pre.scrollTop = pre.scrollHeight;
+  $("#cmd-stop").classList.toggle("hidden", !t || t.done);
+  const choices = $("#console-choices"); choices.innerHTML = "";
+  const p = t && !t.done && promptOf(text);
+  $("#console-input-row").classList.toggle("hidden", !p);
+  if (!p) return;
+  $("#console-prompt").textContent = p.question;
+  $("#console-input").placeholder = p.def ? `Enter for "${p.def}"` : "";
+  choices.innerHTML = choiceButtons(p.choices);
+  $$("button", choices).forEach(b => b.onclick = () => taskInput(t.id, b.dataset.v));
   setTimeout(() => $("#console-input").focus(), 0);
 }
-async function taskInput(v) { if (S.task) { await api(`/api/tasks/${S.task}/input`, { text: v }); $("#console-input").value = ""; } }
-$("#console-send").onclick = () => taskInput($("#console-input").value);
-$("#console-input").onkeydown = e => { if (e.key === "Enter") taskInput($("#console-input").value); };
-$("#cmd-stop").onclick = () => S.task && api(`/api/tasks/${S.task}/stop`, {});
+async function taskInput(id, v) { if (id && S.tasks[id]) { await api(`/api/tasks/${id}/input`, { text: v }); $("#console-input").value = ""; $("#ask-input").value = ""; } }
+$("#console-send").onclick = () => taskInput(S.consoleTask, $("#console-input").value);
+$("#console-input").onkeydown = e => { if (e.key === "Enter") taskInput(S.consoleTask, $("#console-input").value); };
+$("#cmd-stop").onclick = () => S.consoleTask && api(`/api/tasks/${S.consoleTask}/stop`, {});
 
-async function runTask(args) {
-  show("console");
-  $("#cmd-input").value = args.map(a => /\s/.test(a) ? `"${a}"` : a).join(" ");
-  S.consoleText = `\x1b[2m$ windmill ${$("#cmd-input").value}\x1b[0m\n`;
-  renderConsole();
-  const r = await api("/api/tasks", { args, cwd: S.state.project });
+function taskTitle(args) {
+  const c = args.join(" ");
+  const hit = COMMANDS.find(([k]) => k === c) || COMMANDS.find(([k]) => k === args[0]);
+  return hit ? hit[1].replace(/…$/, "") : "windmill " + c;
+}
+function showDetails(id) { S.consoleTask = id; const t = S.tasks[id]; $("#cmd-input").value = t ? t.args.join(" ") : ""; show("console"); renderConsole(); }
+
+async function runTask(args, opts = {}) {
+  if (args[0] === "new" && args.length === 1) return openNewProject();
+  const title = opts.title || taskTitle(args);
+  const r = await api("/api/tasks", { args, cwd: S.state.project, title });
   if (r.error) { toast(r.error); return; }
-  S.task = r.id;
-  $("#cmd-stop").classList.remove("hidden");
-  if (S.taskEs) S.taskEs.close();
-  const es = S.taskEs = new EventSource(`/api/tasks/${r.id}/events?since=0`);
+  const t = S.tasks[r.id] = { id: r.id, args, title, started: Date.now(), done: false, code: null,
+    text: `\x1b[2m$ windmill ${args.map(a => /\s/.test(a) ? `"${a}"` : a).join(" ")}\x1b[0m\n`, onExit: opts.onExit, onOut: opts.onOut };
+  if (opts.console) showDetails(r.id); else toast(`${t.title} - running in the background`);
+  const es = new EventSource(`/api/tasks/${r.id}/events?since=0`);
   let pending = false;
   es.onmessage = e => {
     const ev = JSON.parse(e.data);
-    if (ev.type === "out") S.consoleText += ev.text;
+    if (ev.type === "out") { t.text += ev.text; if (t.onOut) t.onOut(t); }
+    if (ev.type === "in") t.text += ev.text + "\n";
     if (ev.type === "exit") {
-      S.consoleText += `\n\x1b[2m(finished${ev.code ? `, exit code ${ev.code}` : ""})\x1b[0m\n`;
-      S.task = null; $("#cmd-stop").classList.add("hidden"); es.close(); refresh(); loadChats();
+      t.done = true; t.code = ev.code; es.close();
+      t.text += `\n\x1b[2m(finished${ev.code ? `, exit code ${ev.code}` : ""})\x1b[0m\n`;
+      if (t.onExit) t.onExit(t);
+      refresh(); loadChats();
+      if (!ev.code) setTimeout(() => { if (S.consoleTask !== t.id) { delete S.tasks[t.id]; renderJobs(); } }, 10000);
     }
-    if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; renderConsole(); }); }
+    if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; renderAll(); }); }
   };
+  renderJobs();
 }
+function renderAll() {
+  if (S.view === "console") renderConsole();
+  renderJobs(); renderAsk();
+}
+
+function renderJobs() {
+  const list = Object.values(S.tasks);
+  const box = $("#jobs");
+  box.classList.toggle("hidden", !list.length);
+  box.innerHTML = list.map(t => {
+    const waiting = !t.done && promptOf(t.text);
+    const line = waiting ? "Waiting for your answer" : t.done ? (t.code ? `Stopped with a problem - see details` : "Done")
+      : (lastLines(t.text, 1)[0] || "starting…");
+    const icon = t.done ? `<span class="job-icon ${t.code ? "bad" : "ok"}">${t.code ? "!" : "✓"}</span>` : waiting ? `<span class="job-icon ask">?</span>` : `<div class="spinner"></div>`;
+    return `<div class="job" data-id="${t.id}">${icon}<div class="job-main"><b>${esc(t.title)}</b><span title="${esc(line)}">${esc(line.slice(0, 140))}</span></div>
+      <button class="ghost small" data-act="details">Details</button>
+      <button class="icon-btn" data-act="${t.done ? "close" : "stop"}" title="${t.done ? "Dismiss" : "Stop"}">${t.done ? "✕" : "■"}</button></div>`;
+  }).join("");
+  $$(".job", box).forEach(el => el.onclick = e => {
+    const id = el.dataset.id, act = e.target.dataset.act;
+    if (act === "stop") return api(`/api/tasks/${id}/stop`, {});
+    if (act === "close") { delete S.tasks[id]; return renderJobs(); }
+    if (act === "details" || S.tasks[id] && promptOf(S.tasks[id].text)) showDetails(id);
+  });
+}
+
+// questions from background tasks pop up as a dialog (not when you're already looking at that task's console)
+function renderAsk() {
+  const t = Object.values(S.tasks).find(t => !t.done && promptOf(t.text) && !(S.view === "console" && S.consoleTask === t.id));
+  const m = $("#ask-modal");
+  if (!t) { m.classList.add("hidden"); S.asking = null; return; }
+  const p = promptOf(t.text);
+  const key = t.id + ":" + t.text.length;
+  if (S.asking === key) return;
+  S.asking = key;
+  $("#ask-title").textContent = t.title;
+  const ctx = applyCR(t.text).split("\n").slice(-40, -1).filter(l => !/^\$ windmill /.test(strip(l))).join("\n");
+  $("#ask-context").innerHTML = ansiToHtml(ctx);
+  $("#ask-context").classList.toggle("hidden", !strip(ctx).trim());
+  setTimeout(() => { $("#ask-context").scrollTop = 1e9; }, 0);
+  $("#ask-question").textContent = p.question.replace(/\s*\[[^\]]*\]\s*$/, "");
+  $("#ask-choices").innerHTML = choiceButtons(p.choices);
+  $$("#ask-choices button").forEach(b => b.onclick = () => taskInput(t.id, b.dataset.v));
+  const free = !p.yn;
+  $("#ask-free").classList.toggle("hidden", !free);
+  $("#ask-input").value = ""; $("#ask-input").placeholder = p.def ? `Enter for "${p.def}"` : (p.choices.length ? "or type your answer" : "Type your answer");
+  $("#ask-send").onclick = () => taskInput(t.id, $("#ask-input").value);
+  $("#ask-input").onkeydown = e => { if (e.key === "Enter") taskInput(t.id, $("#ask-input").value); };
+  $("#ask-details").onclick = () => showDetails(t.id);
+  $("#ask-stop").onclick = () => api(`/api/tasks/${t.id}/stop`, {});
+  m.classList.remove("hidden");
+  if (free) setTimeout(() => $("#ask-input").focus(), 0);
+}
+
+// ---------------------------------------------------------------- new project (a form, then it runs in the background)
+async function openNewProject() {
+  const f = $("#new-form"); f.reset();
+  if (!f.where.value) f.where.value = (await api("/api/projects-home")).path || "";
+  $("#new-modal").classList.remove("hidden");
+  setTimeout(() => f.idea.focus(), 0);
+}
+$("#new-cancel").onclick = () => $("#new-modal").classList.add("hidden");
+$("#new-browse").onclick = async () => {
+  const f = $("#new-form");
+  const r = await browseFolder(f.where.value, "Where should new projects go?");
+  if (r) f.where.value = r;
+};
+$("#new-form").onsubmit = e => {
+  e.preventDefault();
+  const f = e.target;
+  const args = ["new", "--idea", f.idea.value.trim()];
+  if (f.who.value.trim()) args.push("--who", f.who.value.trim());
+  if (f.extra.value.trim()) args.push("--extra", f.extra.value.trim());
+  if (f.where.value.trim()) args.push("--in", f.where.value.trim());
+  $("#new-modal").classList.add("hidden");
+  runTask(args, { title: "New project", onOut: t => {
+    const m = !t.switched && strip(t.text).match(/Project created at (.+)/);
+    if (m) { t.switched = true; api("/api/project", { path: m[1].trim() }).then(() => { refresh(); toast("Now working in your new project"); }); }
+  } });
+};
+
 document.addEventListener("click", e => {
   const t = e.target.closest("[data-task]");
   if (t) { e.preventDefault(); runTask(splitArgs(t.dataset.task)); }
@@ -397,15 +502,75 @@ document.addEventListener("keydown", e => {
 });
 
 // ---------------------------------------------------------------- project
-$("#pick-project").onclick = async () => {
-  toast("Choose a folder in the window that opened…");
-  let { path } = await api("/api/pick-folder", {});
-  if (!path) path = prompt("Project folder path:", S.state.project);
+async function browseFolder(start, title) {
+  toast("A folder window is opening…", 4000);
+  const r = await api("/api/pick-folder", { start, title });
+  if (r.error) toast("The folder window couldn't open - type or paste the path instead. (" + r.error + ")", 6000);
+  return r.path || null;
+}
+// ---------------------------------------------------------------- project folder menu (like the folder picker in Claude's chat box)
+const baseName = p => (p || "").split(/[\\/]/).filter(Boolean).pop() || p;
+async function switchProject(path) {
+  path = (path || "").trim().replace(/^"|"$/g, "");
   if (!path) return;
   const st = await api("/api/project", { path });
-  if (st.error) return toast(st.error);
-  S.chat = null; await refresh(); show("home"); toast("Now working in " + path);
-};
+  if (st.error) { $("#proj-error").textContent = st.error; return false; }
+  closeProjPop();
+  S.chat = null; await refresh(); if (S.view !== "chat") show("home"); toast("Now working in " + baseName(path));
+  return true;
+}
+function closeProjPop() { $("#proj-pop").classList.add("hidden"); }
+async function openProjPop(anchor) {
+  const pop = $("#proj-pop");
+  $("#proj-error").textContent = ""; $("#proj-path").value = "";
+  $("#pp-name").textContent = baseName(S.state.project); $("#pp-path").textContent = S.state.project;
+  pop.classList.remove("hidden");
+  const place = () => {
+    const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
+    pop.style.top = (r.top > innerHeight / 2 ? Math.max(8, r.top - h - 6) : Math.max(8, Math.min(r.bottom + 6, innerHeight - h - 8))) + "px";
+  };
+  place();
+  const [pr, g] = await Promise.all([api("/api/projects"), api("/api/git")]);
+  $("#pp-recent-sec").classList.toggle("hidden", !(pr.recent || []).length);
+  $("#pp-recent").innerHTML = (pr.recent || []).map(p => `<div class="pop-row"><button class="pop-item" data-path="${esc(p)}" title="${esc(p)}">📁 ${esc(baseName(p))}<small>${esc(p)}</small></button><button class="icon-btn" data-forget="${esc(p)}" title="Remove from list">✕</button></div>`).join("");
+  $$("#pp-recent [data-path]").forEach(b => b.onclick = () => switchProject(b.dataset.path));
+  $$("#pp-recent [data-forget]").forEach(b => b.onclick = async e => { e.stopPropagation(); await api("/api/projects/forget", { path: b.dataset.forget }); b.parentElement.remove(); });
+  renderGit(g);
+  place();
+}
+function renderGit(g) {
+  const conn = g.repo && g.remote;
+  $("#pp-git").innerHTML = !g.repo ? `<span class="muted">Not using GitHub yet - connect a repo below (it starts version history for you).</span>`
+    : conn ? `<a href="${esc(g.web)}" target="_blank" rel="noopener">${esc(g.web.replace(/^https?:\/\//, ""))}</a> · branch <b>${esc(g.branch || "?")}</b><br>
+       <span class="muted">${g.changes} unsaved change${g.changes === 1 ? "" : "s"} · ${g.ahead} to send · ${g.behind} to get</span>`
+    : `<span class="muted">Has version history, but isn't connected to GitHub - connect a repo below.</span>`;
+  $("#pp-git-actions").classList.toggle("hidden", !conn);
+  $("#pp-repo").placeholder = conn ? "Change repo: owner/name or URL" : "Connect a repo: owner/name or URL";
+}
+function gitTask(args, title) {
+  closeProjPop();
+  runTask(["git", ...args], { title, onExit: t => {
+    const m = strip(t.text).match(/Project ready at (.+)/);
+    if (m) switchProject(m[1].trim());
+  } });
+}
+$("#pick-project").onclick = e => openProjPop(e.currentTarget);
+$("#project-card .name").onclick = e => openProjPop(e.currentTarget);
+$("#composer-folder").onclick = e => openProjPop(e.currentTarget);
+$("#pp-browse").onclick = async () => { const p = await browseFolder(S.state.project, "Choose a project folder"); if (p) switchProject(p); };
+$("#proj-open").onclick = () => switchProject($("#proj-path").value);
+$("#proj-path").onkeydown = e => { if (e.key === "Enter") switchProject($("#proj-path").value); };
+$$("[data-git]").forEach(b => b.onclick = () => gitTask([b.dataset.git], { sync: "Sync with GitHub", pull: "Get latest from GitHub", push: "Send to GitHub" }[b.dataset.git]));
+$("#pp-connect").onclick = () => { const v = $("#pp-repo").value.trim(); if (v) gitTask(["connect", v], "Connect GitHub repo"); };
+$("#pp-repo").onkeydown = e => { if (e.key === "Enter") $("#pp-connect").click(); };
+$("#pp-clone-btn").onclick = () => { const v = $("#pp-clone").value.trim(); if (v) gitTask(["clone", v], "Open GitHub repo"); };
+$("#pp-clone").onkeydown = e => { if (e.key === "Enter") $("#pp-clone-btn").click(); };
+document.addEventListener("mousedown", e => {
+  const pop = $("#proj-pop");
+  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && !e.target.closest("#pick-project,#composer-folder,#project-card .name")) closeProjPop();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeProjPop(); });
 $("#model-pill").onclick = () => show("models");
 
 // ---------------------------------------------------------------- models

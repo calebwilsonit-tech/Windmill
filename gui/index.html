@@ -21,7 +21,7 @@
       <div class="name" id="project-name">…</div>
       <div class="kinds" id="project-kinds"></div>
       <div class="row">
-        <button class="ghost small" id="pick-project">Change…</button>
+        <button class="ghost small" id="pick-project">Change ▾</button>
         <button class="ghost small" data-task="new" title="Describe an idea - Windmill plans and builds it">New project</button>
       </div>
     </div>
@@ -80,7 +80,7 @@
       <div id="composer">
         <textarea id="input" rows="1" placeholder="Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)"></textarea>
         <div class="composer-row">
-          <span class="muted small" id="composer-hint">Works in: <b id="composer-project"></b></span>
+          <button class="folder-chip" id="composer-folder" title="Change the folder / GitHub repo Windmill works in">📁 <b id="composer-project"></b> ▾</button><span class="spacer"></span>
           <button class="danger hidden" id="stop-btn">■ Stop</button>
           <button class="primary" id="send-btn">Send</button>
         </div>
@@ -168,6 +168,54 @@
     <div class="row right"><button class="ghost" id="um-later">Later</button><button class="primary" id="um-now">Update now</button></div>
   </div>
 </div>
+<div id="new-modal" class="modal hidden" role="dialog" aria-label="New project">
+  <form class="modal-card card-form" id="new-form">
+    <h2>Start a new project</h2>
+    <p class="muted small">Describe it in your own words - no technical knowledge needed. Windmill plans it, sets it up and can build it for you in the background.</p>
+    <label>What do you want to make? <textarea name="idea" rows="3" required placeholder="e.g. a cozy farming game for phones, or a website for my bakery with an order form"></textarea></label>
+    <label>Who is it for? <span class="muted">(optional)</span> <input name="who" placeholder="e.g. kids, my customers, just me"></label>
+    <label>Anything it must have or look like? <span class="muted">(optional)</span> <input name="extra" placeholder="e.g. dark theme, works offline, save slots"></label>
+    <label>Where to put it <span class="row"><input name="where" style="flex:1"><button class="ghost" type="button" id="new-browse">Browse…</button></span></label>
+    <div class="row right"><button class="ghost" type="button" id="new-cancel">Cancel</button><button class="primary" type="submit">Plan it</button></div>
+  </form>
+</div>
+<div id="proj-pop" class="popover hidden" role="dialog" aria-label="Project folder">
+  <div class="pop-sec">
+    <div class="label">Working in</div>
+    <div class="pop-cur"><b id="pp-name"></b><span class="muted small" id="pp-path"></span></div>
+  </div>
+  <div class="pop-sec" id="pp-recent-sec">
+    <div class="label">Recent</div>
+    <div id="pp-recent"></div>
+  </div>
+  <div class="pop-sec">
+    <button class="pop-item" id="pp-browse">📁 Choose a folder…</button>
+    <div class="row pop-path"><input id="proj-path" placeholder="…or paste a folder path" autocomplete="off"><button class="ghost small" id="proj-open">Open</button></div>
+    <div id="proj-error" class="small bad-text"></div>
+  </div>
+  <div class="pop-sec">
+    <div class="label">GitHub</div>
+    <div id="pp-git" class="small"></div>
+    <div class="row wrap" id="pp-git-actions">
+      <button class="primary small" data-git="sync" title="Save your changes, get the latest from GitHub, then send yours">⇅ Sync</button>
+      <button class="ghost small" data-git="pull" title="Get the latest from GitHub">↓ Get latest</button>
+      <button class="ghost small" data-git="push" title="Send your saved changes to GitHub">↑ Send</button>
+    </div>
+    <div class="row pop-path"><input id="pp-repo" placeholder="Connect a repo: owner/name or URL" autocomplete="off"><button class="ghost small" id="pp-connect">Connect</button></div>
+    <div class="row pop-path"><input id="pp-clone" placeholder="Open a GitHub repo as a new project" autocomplete="off"><button class="ghost small" id="pp-clone-btn">Open</button></div>
+  </div>
+</div>
+<div id="ask-modal" class="modal hidden" role="dialog" aria-label="Windmill needs your answer">
+  <div class="modal-card">
+    <div class="muted small" id="ask-title"></div>
+    <pre id="ask-context" class="console ask-context"></pre>
+    <h3 id="ask-question"></h3>
+    <div id="ask-choices" class="choices"></div>
+    <div id="ask-free" class="row" style="margin-top:10px"><input id="ask-input" style="flex:1" autocomplete="off"><button class="primary" id="ask-send">OK</button></div>
+    <div class="row right" style="margin-top:12px"><button class="ghost small" id="ask-details">Show details</button><button class="ghost small" id="ask-stop">Stop</button></div>
+  </div>
+</div>
+<div id="jobs" class="jobs hidden" aria-live="polite"></div>
 <div id="toast" class="toast hidden"></div>
 <script src="/static/app.js"></script>
 </body>

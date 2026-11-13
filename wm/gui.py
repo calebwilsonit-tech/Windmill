@@ -40,8 +40,16 @@ def _log(msg):
             f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
     except OSError:
         pass
-STATE = {"project": None, "last_beat": time.time(), "update": None, "update_at": 0}
+STATE = {"project": None, "last_beat": time.time(), "update": None, "update_at": 0, "seen": 0}
 CHATS, TASKS = {}, {}
+NOTES = []  # notifications for the tray icon: [n, title, text]
+PROMPT_RE = re.compile(r"(^|\n)\? [^\n]*\S\s*$|\(Y/n\)\s*$|\(y/N\)\s*$")
+
+
+def note(title, text):
+    """Tray notification - only shown when the app window isn't on screen."""
+    NOTES.append([len(NOTES) + 1, title, text])
+    del NOTES[:-50]
 LOCK = threading.Lock()
 
 
@@ -131,6 +139,7 @@ class ChatRun:
                         return
                 final = self.ensure_agent().send(text)
                 self.push({"type": "final", "text": final or ""})
+                note("Windmill replied", (final or "Done.").strip().splitlines()[0][:180] if (final or "").strip() else "Done.")
             except Exception as e:  # noqa: BLE001
                 self.push({"type": "error", "text": f"{type(e).__name__}: {e}"})
             finally:
@@ -142,8 +151,10 @@ class ChatRun:
 
 # ------------------------------------------------------------------ CLI tasks with a live console
 class TaskRun:
-    def __init__(self, args, cwd):
+    def __init__(self, args, cwd, title=None):
         self.args, self.cwd = args, cwd
+        self.title = title or "windmill " + " ".join(args)
+        self.tail, self.asked = "", False
         self.events, self.cond = [], threading.Condition()
         env = {**os.environ, "FORCE_COLOR": "1", "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8",
                "WINDMILL_NO_UPDATE": "1", "WINDMILL_GUI": "1", "COLUMNS": "100"}
@@ -167,14 +178,23 @@ class TaskRun:
             chunk = os.read(fd, 4096)
             if not chunk:
                 break
-            self.push({"type": "out", "text": dec.decode(chunk)})
+            text = dec.decode(chunk)
+            self.push({"type": "out", "text": text})
+            self.tail = (self.tail + text)[-600:]
+            plain = re.sub(r"\x1b\[[\d;]*[A-Za-z]", "", self.tail).split("\r")[-1]
+            if not self.asked and PROMPT_RE.search(plain):
+                self.asked = True
+                note(self.title, "needs your answer - click to open Windmill")
         self.proc.wait()
         self.push({"type": "exit", "code": self.proc.returncode})
+        note(self.title, "finished" if self.proc.returncode == 0 else "stopped with a problem - open Windmill for details")
 
     def input(self, text):
         try:
             self.proc.stdin.write((text + "\n").encode("utf-8"))
             self.proc.stdin.flush()
+            self.asked = False
+            self.tail = ""
             self.push({"type": "in", "text": text})
         except OSError:
             pass
@@ -188,6 +208,11 @@ class TaskRun:
 
 
 # ------------------------------------------------------------------ data for the app
+def remember_project(p):
+    rec = [x for x in config.load().get("recent_projects", []) if x != p]
+    config.set_value("recent_projects", [p, *rec][:20])
+
+
 def project():
     p = STATE["project"] or str(config.project_root())
     return Path(p)
@@ -290,17 +315,45 @@ def update_info(force=False):
     return info
 
 
-def pick_folder():
+PICK_PS = r"""
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+# An invisible, always-on-top owner window: without it the dialog opens BEHIND the app (Windows doesn't let
+# a background process put windows in front), so it looks like nothing happened.
+$o = New-Object System.Windows.Forms.Form
+$o.TopMost = $true; $o.ShowInTaskbar = $false; $o.Opacity = 0
+$o.StartPosition = 'CenterScreen'; $o.Size = New-Object System.Drawing.Size(1, 1)
+$o.Show(); $o.Activate()
+$f = New-Object System.Windows.Forms.FolderBrowserDialog
+$f.Description = '__TITLE__'
+$f.ShowNewFolderButton = $true
+if ('__START__' -and (Test-Path -LiteralPath '__START__')) { $f.SelectedPath = '__START__' }
+$r = $f.ShowDialog($o)
+$o.Close()
+if ($r -eq 'OK') { [Console]::Out.Write($f.SelectedPath) }
+"""
+
+
+def pick_folder(start="", title="Choose a project folder"):
+    """Native folder dialog. Returns (path or None, error or None)."""
     if os.name == "nt":
-        ps = ("Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; "
-              "$f.Description = 'Choose a project folder'; if ($f.ShowDialog() -eq 'OK') { $f.SelectedPath }")
-        r = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], capture_output=True, text=True)
-        return r.stdout.strip() or None
+        q = lambda s: str(s or "").replace("'", "''")  # noqa: E731
+        ps = PICK_PS.replace("__TITLE__", q(title)).replace("__START__", q(start))
+        try:
+            r = subprocess.run(["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            _log(f"folder picker failed: {e}")
+            return None, str(e)
+        if r.returncode:
+            _log(f"folder picker exit {r.returncode}: {r.stderr.strip()[-800:]}")
+            return None, (r.stderr.strip().splitlines() or ["the folder window couldn't open"])[-1]
+        return (r.stdout.strip() or None), None
     for tool in (["zenity", "--file-selection", "--directory"], ["kdialog", "--getexistingdirectory"]):
         if shutil.which(tool[0]):
             r = subprocess.run(tool, capture_output=True, text=True)
-            return r.stdout.strip() or None
-    return None
+            return (r.stdout.strip() or None), None
+    return None, "no folder window available here - type the path instead"
 
 
 # ------------------------------------------------------------------ HTTP
@@ -397,6 +450,25 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             t = TASKS.get(m.group(1))
             return self._sse(t, int(q.get("since", ["0"])[0])) if t else self._json({"error": "no task"}, 404)
+        if path == "/api/projects-home":
+            from . import project as proj
+            return self._json({"path": str(proj.projects_home())})
+        if path == "/api/git":
+            from . import gitops
+            return self._json(gitops.info(project()))
+        if path == "/api/projects":
+            cur = str(project())
+            rec = [x for x in config.load().get("recent_projects", []) if x != cur and Path(x).is_dir()]
+            return self._json({"current": cur, "recent": rec[:12]})
+        if path == "/api/tray":  # the tray icon's 15-second check-in (also keeps Windmill running in the background)
+            since = int(q.get("since", ["0"])[0] or 0)
+            running = sum(1 for t in TASKS.values() if t.proc.poll() is None) + sum(1 for r in CHATS.values() if r.busy)
+            waiting = sum(1 for t in TASKS.values() if t.proc.poll() is None and t.asked)
+            window = time.time() - STATE["seen"] < 40
+            new = [n for n in NOTES if n[0] > since]
+            return self._json({"running": running, "waiting": waiting, "window": window,
+                               "next": NOTES[-1][0] if NOTES else 0,
+                               "notes": [] if window else [f"{n[1]}: {n[2]}" for n in new[-3:]]})
         if path == "/api/models":
             return self._json(models_info())
         if path == "/api/settings":
@@ -428,15 +500,22 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         b = self._body()
         if path == "/api/beat":
+            if b.get("visible"):
+                STATE["seen"] = time.time()
             return self._json({"ok": True})
         if path == "/api/project":
             p = Path(b.get("path", "")).expanduser()
             if not p.is_dir():
                 return self._json({"error": f"{p} isn't a folder"}, 400)
             STATE["project"] = str(p.resolve())
+            remember_project(STATE["project"])
             return self._json(state())
+        if path == "/api/projects/forget":
+            config.set_value("recent_projects", [x for x in config.load().get("recent_projects", []) if x != b.get("path")])
+            return self._json({"ok": True})
         if path == "/api/pick-folder":
-            return self._json({"path": pick_folder()})
+            path, error = pick_folder(b.get("start") or str(project()), b.get("title") or "Choose a project folder")
+            return self._json({"path": path, "error": error})
         if path == "/api/chats":
             s = sessions.Session.new(project())
             return self._json({"id": s.id})
@@ -481,7 +560,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/tasks":
             args = [str(a) for a in b.get("args", [])]
             tid = secrets.token_hex(4)
-            TASKS[tid] = TaskRun(args, b.get("cwd") or str(project()))
+            TASKS[tid] = TaskRun(args, b.get("cwd") or str(project()), b.get("title"))
             return self._json({"id": tid})
         m = re.match(r"^/api/tasks/(\w+)/(input|stop)$", path)
         if m:
@@ -692,7 +771,7 @@ def build_exe(quiet=False):
     icon = WEB / "windmill.ico"
     _log(f"building {out} with compiler {c}")
     r = subprocess.run([c, "/nologo", "/target:winexe", "/optimize+", f"/out:{out}", f"/win32icon:{icon}",
-                        "/r:System.Windows.Forms.dll", "/r:System.Net.Http.dll", str(LAUNCHER_SRC)],
+                        "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", "/r:System.Net.Http.dll", str(LAUNCHER_SRC)],
                        capture_output=True, text=True) if c else None
     if r is not None:
         _log(f"compiler exit {r.returncode}: {(r.stdout + r.stderr).strip()[-2000:]}")

@@ -38,7 +38,7 @@ jobs:
         run: |
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           New-Item -ItemType Directory -Force dist | Out-Null
-          & $csc /nologo /target:winexe /optimize+ /out:dist\Windmill.exe /win32icon:gui\windmill.ico /r:System.Windows.Forms.dll /r:System.Net.Http.dll launcher\Windmill.cs
+          & $csc /nologo /target:winexe /optimize+ /out:dist\Windmill.exe /win32icon:gui\windmill.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Net.Http.dll launcher\Windmill.cs
           if ($LASTEXITCODE -ne 0) { throw "Windmill.exe failed to compile" }
           & $csc /nologo /target:winexe /optimize+ /out:dist\WindmillSetup.exe /win32icon:gui\windmill.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll launcher\WindmillSetup.cs
           if ($LASTEXITCODE -ne 0) { throw "WindmillSetup.exe failed to compile" }

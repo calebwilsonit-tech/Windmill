@@ -148,15 +148,17 @@ def design_menu(root):
 
 
 # ------------------------------------------------------------------ new project
-def new_project():
+def new_project(idea=None, who=None, extra=None, parent=None):
+    """Guided new project. The desktop app passes the answers it already collected in its form."""
     cfg = config.load()
     ui.rule("New project")
-    print(ui.dim("  Describe what you want in your own words. No technical knowledge needed.\n"))
-    idea = ui.ask("What do you want to make?")
     if not idea:
-        return
-    who = ui.ask("Who is it for? (optional)")
-    extra = ui.ask("Anything it must have or must look like? (optional)")
+        print(ui.dim("  Describe what you want in your own words. No technical knowledge needed.\n"))
+        idea = ui.ask("What do you want to make?")
+        if not idea:
+            return
+        who = ui.ask("Who is it for? (optional)")
+        extra = ui.ask("Anything it must have or must look like? (optional)")
     if not server.ensure(cfg):
         return
     llm = LLM(cfg)
@@ -194,7 +196,14 @@ def new_project():
                 "or choose a website / phone app instead.")
         return
     slug = re.sub(r"[^a-z0-9-]+", "-", plan.get("slug", plan["name"]).lower()).strip("-") or "my-project"
-    root = Path(ui.ask("Where should I create it?", str(projects_home() / slug))).expanduser()
+    if parent:
+        root = Path(parent).expanduser() / slug
+        n = 2
+        while root.exists() and any(root.iterdir()):
+            root = Path(parent).expanduser() / f"{slug}-{n}"
+            n += 1
+    else:
+        root = Path(ui.ask("Where should I create it?", str(projects_home() / slug))).expanduser()
     if root.exists() and any(root.iterdir()):
         ui.warn(f"{root} isn't empty - I'll add to it.")
     root.mkdir(parents=True, exist_ok=True)

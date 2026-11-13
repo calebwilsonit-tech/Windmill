@@ -33,7 +33,8 @@ DEFAULTS = {
     "library_refresh_days": 30,  # re-discover + download new public projects in the background (0 = off)
     "last_library_refresh": 0,
     "auto_fix": True,
-    "app_setup_done": False,            # find/repair/install llama.cpp and re-find moved models automatically
+    "app_setup_done": False,
+    "recent_projects": [],              # folders opened in the app, newest first            # find/repair/install llama.cpp and re-find moved models automatically
 }
 
 

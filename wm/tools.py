@@ -257,7 +257,7 @@ class Tools:
             log = config.LOGS / f"bg-{len(self.bg)}.log"
             config.LOGS.mkdir(parents=True, exist_ok=True)
             fh = open(log, "w", encoding="utf-8", errors="replace")
-            kw = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000200}
+            kw = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000200 | 0x08000000}
             p = subprocess.Popen(self.shell_cmd(command), cwd=self.root, stdout=fh, stderr=subprocess.STDOUT, env=env, **kw)
             self.bg.append(p)
             import time

@@ -27,6 +27,7 @@ COMMANDS = [
     ("plugins", "catalog [service]|list|add|remove|enable|disable|test|import", "connect apps & services (MCP plugins)"),
     ("connect", "[service]", "browse connectors: browser testing, Blender, Ludo, GitHub, Gmail, Notion..."),
     ("skills", "", "list the skills the AI can use"),
+    ("git", "status|sync|pull|push|commit|connect <repo>|clone <repo>", "GitHub: save, get and send changes, change the repo"),
     ("app", "[--install]", "open the Windmill desktop app (--install: create the app + shortcuts)"),
     ("server", "start|stop|status|logs", "control the model server (normally automatic)"),
     ("tune", "", "make the model use your GPU as much as safely possible"),
@@ -365,7 +366,15 @@ def dispatch(argv):
     if cmd in ("chat", "c"):
         chat(args)
     elif cmd == "new":
-        project.new_project()
+        opts, k = {}, 0
+        while k < len(args):
+            if args[k] in ("--idea", "--who", "--extra", "--in") and k + 1 < len(args):
+                opts[args[k][2:].replace("in", "parent")] = args[k + 1]
+                k += 2
+            else:
+                opts.setdefault("idea", " ".join(args[k:]))
+                break
+        project.new_project(**opts)
     elif cmd == "build":
         project.build()
     elif cmd == "run":
@@ -397,6 +406,9 @@ def dispatch(argv):
         if not args:
             return ui.warn('Usage: windmill best "what to build" [-n 4]')
         server.ensure() and script("best_of_n.py", args)
+    elif cmd == "git":
+        from . import gitops
+        gitops.cmd(args)
     elif cmd == "plugins":
         plugins_cmd(args)
     elif cmd == "connect":
@@ -509,12 +521,31 @@ def ensure_command():
                 cur, kind = winreg.QueryValueEx(k, "Path")
             except FileNotFoundError:
                 cur, kind = "", winreg.REG_EXPAND_SZ
-            parts = [x for x in cur.split(";") if x and x.rstrip("\\").lower() != str(bindir).lower()]
+            kit = str(config.KIT).rstrip("\\").lower()
+
+            def stray(x):  # a folder holding windmill.py on PATH makes `windmill` open the .py ("select an app")
+                x = os.path.expandvars(x).rstrip("\\").lower()
+                return x == str(bindir).lower() or x == kit or x == kit + "\\bin" or \
+                    os.path.isfile(os.path.join(x, "windmill.py")) or os.path.isfile(os.path.join(x, "windmill"))
+            parts = [x for x in cur.split(";") if x and not stray(x)]
             new = ";".join([str(bindir), *parts])
             if new != cur:
                 winreg.SetValueEx(k, "Path", 0, kind, new)
                 import ctypes
                 ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x1A, 0, "Environment", 2, 2000, None)
+        machine = os.environ.get("PATH", "")
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as k:
+                machine = winreg.QueryValueEx(k, "Path")[0]
+        except OSError:
+            pass
+        bad = [x for x in machine.split(";") if x and (os.path.isfile(os.path.join(os.path.expandvars(x), "windmill.py"))
+                                                     or os.path.isfile(os.path.join(os.path.expandvars(x), "windmill")))]
+        if bad:
+            ui.warn("The system PATH contains " + ", ".join(bad) + " - that makes typing `windmill` open a file "
+                    "instead of Windmill. Remove it: Start > 'Edit the system environment variables' > "
+                    "Environment Variables > System variables > Path.")
     except Exception:  # noqa: BLE001
         pass
 

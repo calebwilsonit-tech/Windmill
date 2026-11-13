@@ -95,7 +95,7 @@ def start(cfg=None, quiet=False, wait=True):
     log = open(LOG, "w", encoding="utf-8", errors="replace")
     kw = {"stdout": log, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
     if os.name == "nt":
-        kw["creationflags"] = 0x00000008 | 0x00000200 | 0x08000000  # detached, new group, no window
+        kw["creationflags"] = 0x00000200 | 0x08000000  # own group, hidden console (DETACHED would make every child flash a window)
     else:
         kw["start_new_session"] = True
     proc = subprocess.Popen(cmd, **kw)

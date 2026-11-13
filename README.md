@@ -56,7 +56,18 @@ Windmill has a desktop app with everything the command line has, laid out like C
   **activity bar** ("Running: cargo test…", "Checking the project…"), every command and file edit as a line
   you can expand to see the output, a collapsible **Thinking** block for models that think out loud,
   debugger notes, and a **Stop** button. When it needs to ask you something, it asks in the chat.
-- **Project picker** and quick buttons: Check, Run, Fix a problem, Build, Android.
+- **Folder and GitHub menu**: click the folder name under the chat box, or **Change** on the project card.
+  You get recent folders, **Choose a folder…** (or paste a path), and the project's GitHub repo with
+  **Sync** (save, get the latest, send yours), **Get latest** and **Send**, plus *Change repo* and *Open a
+  GitHub repo as a new project*. On the command line it's `windmill git sync|pull|push|connect <repo>|clone <repo>`.
+- **Everything runs in the background.** Buttons like *New project*, *Build* or *Get a model* start the work
+  and show it in a small tray in the corner. When Windmill needs an answer, a dialog pops up with buttons.
+  **Details** shows the full command output if you want it.
+- **New project** is a form: describe your idea, say who it's for, and pick where to put it. Windmill plans
+  it, asks you to approve the plan and choose a look, then builds it in the background.
+- **Tray icon** (the hidden icons by the clock): closing the window keeps Windmill running, so builds carry
+  on. You get a notification when something finishes or needs an answer. Its menu has *Open*, *Start with
+  Windows* and *Quit*.
 - **Commands** (`Ctrl+K`): every CLI command runs in a built-in console with colour, live progress, and
   **menus turned into buttons**. The design picker's colour swatches show as real colours.
 - **AI models**, **Plugins**, **Skills**, **Settings** and **Updates** screens.
