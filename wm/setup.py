@@ -57,15 +57,17 @@ def step_tools():
 def step_llama(update=False):
     ui.rule("2. AI engine (llama.cpp)")
     cfg = config.load()
-    b = server.find_binary(cfg)
-    if b and not update:
-        ui.ok(f"Found {b}")
-        return True
-    try:
-        b = server.install_llamacpp()
-    except Exception as e:  # noqa: BLE001
-        ui.err(f"Download failed: {e}")
-        b = None
+    from . import heal
+    if update:
+        try:
+            b = server.install_llamacpp()
+        except Exception as e:  # noqa: BLE001
+            ui.err(f"Download failed: {e}")
+            b = None
+    else:
+        b = heal.ensure_llama(cfg)  # finds an existing install anywhere, repairs it, or downloads one
+    if b:
+        ui.ok(f"llama.cpp: {b}")
     if not b:
         ui.info("Manual option: download the right zip from github.com/ggml-org/llama.cpp/releases, unzip it into\n"
                 f"    {config.KIT / 'llama.cpp'}\n  then run  windmill setup  again.")
@@ -288,7 +290,7 @@ def doctor():
         ("Rust", "installed" if have("cargo") else "not installed (only needed for games/apps/tools)", True),
         ("GPU", f"{hw['gpu']} {hw['vram_gb']:.1f} GB" if hw["gpu"] else "none detected (CPU mode)", True),
         ("RAM", f"{hw['ram_gb']:.0f} GB", hw["ram_gb"] >= 8),
-        ("llama.cpp", server.find_binary(cfg) or "missing - run windmill setup", bool(server.find_binary(cfg))),
+        ("llama.cpp", (_b := server.find_binary(cfg)) or "not found - run  windmill fix", bool(_b)),
         ("Model", cfg.get("model_name") or "none selected - run windmill models", bool(models.current_model(cfg))),
         ("Model server", "running" if server.health(cfg) else "stopped (starts automatically when needed)", True),
         ("Library", "ready" if (config.KIT / "corpus" / "corpus.db").exists() else "not downloaded (windmill library fetch)", True),

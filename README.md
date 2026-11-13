@@ -430,6 +430,7 @@ these), `threads`, `model_dirs`, `show_thinking`, `permission` (`auto` or `ask`)
 | Problem | Fix |
 |---|---|
 | Anything odd | `windmill doctor`, then `windmill setup` |
+| "llama.cpp missing" even though you installed it | Nothing to do: Windmill now finds it wherever it is (Downloads, Desktop, `C:\llama.cpp`, winget, scoop, a source build...), unzips downloaded zips, adds missing CUDA DLLs, and replaces copies that are too old. `windmill fix` shows every copy it found and which one it uses. |
 | "llama.cpp too old" / unknown model architecture | `windmill setup --update-llama` |
 | Out of memory | `windmill tune`, or `windmill settings ctx 32768`, or a smaller model |
 | Model server won't start | `windmill server logs` |

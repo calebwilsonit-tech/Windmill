@@ -37,6 +37,7 @@ COMMANDS = [
     ("release", "[major|minor|fix]", "release manually (normally automatic after each commit)"),
     ("setup", "[--update-llama]", "install / repair everything (run this first)"),
     ("doctor", "", "health check"),
+    ("fix", "", "find and repair everything automatically (llama.cpp, moved models...)"),
 ]
 
 
@@ -65,6 +66,10 @@ def status_line():
 
 
 def main_menu():
+    cfg = config.load()
+    if cfg.get("auto_fix", True) and not (cfg.get("llama_server") and Path(cfg["llama_server"]).is_file()):
+        from . import heal
+        heal.ensure_llama(cfg)  # repair before showing the menu, so everything just works
     while True:
         ui.logo()
         status_line()
@@ -394,6 +399,12 @@ def dispatch(argv):
         setup.run_setup(update_llama="--update-llama" in args)
     elif cmd == "doctor":
         setup.doctor()
+    elif cmd == "fix":
+        from . import heal
+        b = heal.ensure_llama()
+        heal.ensure_model()
+        heal.report()
+        (ui.ok if b else ui.err)("llama.cpp is ready." if b else "llama.cpp still isn't working - see above.")
     elif cmd == "update":
         from . import update
         update.cmd_update(args)

@@ -21,12 +21,9 @@ EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
 
 
 def find_binary(cfg):
-    cands = [cfg.get("llama_server"), config.KIT / "llama.cpp" / EXE, shutil.which("llama-server")]
-    for c in cands:
-        if c and Path(c).is_file():
-            return str(c)
-    found = list((config.KIT / "llama.cpp").rglob(EXE)) if (config.KIT / "llama.cpp").exists() else []
-    return str(found[0]) if found else None
+    """A working llama-server, wherever it was installed (no downloading here; see heal.ensure_llama)."""
+    from . import heal
+    return heal.ensure_llama(cfg, quiet=True, allow_download=False)
 
 
 def health(cfg, timeout=2):
@@ -78,9 +75,15 @@ def start(cfg=None, quiet=False, wait=True):
     if health(cfg):
         return True
     stop(quiet=True)
-    binary = find_binary(cfg)
+    from . import heal
+    if cfg.get("auto_fix", True):
+        binary = heal.ensure_llama(cfg)           # finds / repairs / installs automatically
+        heal.ensure_model(cfg)
+        cfg = config.load()
+    else:
+        binary = find_binary(cfg)
     if not binary:
-        ui.err("llama.cpp isn't installed yet. Run:  windmill setup")
+        ui.err("Couldn't get llama.cpp working. Run  windmill fix  to see what's wrong.")
         return False
     model = models.current_model(cfg)
     if not model:
