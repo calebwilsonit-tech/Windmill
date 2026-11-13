@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.0 - 2026-11-13 (minor)
+- feat: desktop app, connectors (MCP plugins), skills, and the Rust testkit
+- (released automatically from the commit messages)
+
 ## 1.1.4 - 2026-11-13 (fix)
 - fix: build crash "database is locked", MoE models from Ollama, wrong model tip
 - (released automatically from the commit messages)
