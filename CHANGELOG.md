@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.0 - 2026-11-13 (minor)
+- feat: background tasks with question popups, new-project form, folder & GitHub menu, tray icon; fix folder picker, flashing windows and the windmill command
+- (released automatically from the commit messages)
+
 ## 1.2.4 - 2026-11-13 (fix)
 - fix: desktop app engine crashed at start under pythonw (no console); now logs to ~/.windmill/logs/app.log and hides helper windows
 - (released automatically from the commit messages)
