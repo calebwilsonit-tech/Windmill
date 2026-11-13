@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.3 - 2026-11-13 (fix)
+- fix: recognise wrong llama.cpp downloads and replace them automatically
+- (released automatically from the commit messages)
+
 ## 1.1.2 - 2026-11-13 (fix)
 - fix: find and repair llama.cpp automatically wherever it was installed
 - (released automatically from the commit messages)
