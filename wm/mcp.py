@@ -134,6 +134,11 @@ class HttpServer:
     def _post(self, obj, timeout=TIMEOUT):
         headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
                    "MCP-Protocol-Version": PROTOCOL, **(self.spec.get("headers") or {})}
+        if self.spec.get("auth") == "github" and "Authorization" not in (self.spec.get("headers") or {}):
+            from . import gitops  # your GitHub sign-in, read from the system's credential store - never saved here
+            tok = gitops.token()
+            if tok:
+                headers["Authorization"] = f"Bearer {tok}"
         if self.session:
             headers["Mcp-Session-Id"] = self.session
         req = urllib.request.Request(self.spec["url"], data=json.dumps(obj).encode(), headers=headers)

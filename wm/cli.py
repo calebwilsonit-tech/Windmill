@@ -27,7 +27,7 @@ COMMANDS = [
     ("plugins", "catalog [service]|list|add|remove|enable|disable|test|import", "connect apps & services (MCP plugins)"),
     ("connect", "[service]", "browse connectors: browser testing, Blender, Ludo, GitHub, Gmail, Notion..."),
     ("skills", "", "list the skills the AI can use"),
-    ("git", "status|sync|pull|push|commit|connect <repo>|clone <repo>", "GitHub: save, get and send changes, change the repo"),
+    ("git", "status|sync|pull|push|commit|connect <repo>|clone <repo>|login|logout|repos", "GitHub: save, get and send changes, change the repo"),
     ("app", "[--install]", "open the Windmill desktop app (--install: create the app + shortcuts)"),
     ("server", "start|stop|status|logs", "control the model server (normally automatic)"),
     ("tune", "", "make the model use your GPU as much as safely possible"),

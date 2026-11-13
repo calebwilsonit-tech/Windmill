@@ -195,6 +195,7 @@
   </div>
   <div class="pop-sec">
     <div class="label">GitHub</div>
+    <div id="pp-account" class="row small"></div>
     <div id="pp-git" class="small"></div>
     <div class="row wrap" id="pp-git-actions">
       <button class="primary small" data-git="sync" title="Save your changes, get the latest from GitHub, then send yours">⇅ Sync</button>
@@ -213,6 +214,13 @@
     <div id="ask-choices" class="choices"></div>
     <div id="ask-free" class="row" style="margin-top:10px"><input id="ask-input" style="flex:1" autocomplete="off"><button class="primary" id="ask-send">OK</button></div>
     <div class="row right" style="margin-top:12px"><button class="ghost small" id="ask-details">Show details</button><button class="ghost small" id="ask-stop">Stop</button></div>
+  </div>
+</div>
+<div id="repos-modal" class="modal hidden" role="dialog" aria-label="Your GitHub repos">
+  <div class="modal-card">
+    <div class="row"><h2 style="flex:1">Your GitHub repos</h2><button class="icon-btn" id="repos-close" title="Close">✕</button></div>
+    <input id="repos-search" type="search" placeholder="Search your repos…" autocomplete="off" style="width:100%;margin:8px 0">
+    <div id="repos-list" class="repos-list"></div>
   </div>
 </div>
 <div id="jobs" class="jobs hidden" aria-live="polite"></div>

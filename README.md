@@ -60,6 +60,12 @@ Windmill has a desktop app with everything the command line has, laid out like C
   You get recent folders, **Choose a folder…** (or paste a path), and the project's GitHub repo with
   **Sync** (save, get the latest, send yours), **Get latest** and **Send**, plus *Change repo* and *Open a
   GitHub repo as a new project*. On the command line it's `windmill git sync|pull|push|connect <repo>|clone <repo>`.
+- **Sign in to GitHub** (same menu, or `windmill git login`): a GitHub sign-in window opens (Git's own sign-in, which
+  comes with Git for Windows). After that, **Your repos…** lists all your repos, private ones included. Click
+  **Open** to download one and work in it, or **Use for this folder** to sync the current folder with it.
+  Push and pull use the same sign-in. The **GitHub connector** (Plugins) uses it too, so the AI can work
+  with issues, pull requests and code search. The token stays in Windows' credential store, never in Windmill's
+  files. `windmill git logout` signs out. No sign-in window? It offers to paste a token instead.
 - **Everything runs in the background.** Buttons like *New project*, *Build* or *Get a model* start the work
   and show it in a small tray in the corner. When Windmill needs an answer, a dialog pops up with buttons.
   **Details** shows the full command output if you want it.

@@ -29,9 +29,8 @@ FEATURED = [
      "spec": {"command": "uvx", "args": ["blender-mcp"]}, "needs": "uv"},
     {"id": "github", "title": "GitHub", "publisher": "GitHub (official)",
      "why": "Issues, pull requests, code search and repositories.",
-     "spec": {"type": "http", "url": "https://api.githubcopilot.com/mcp/"},
-     "ask": [{"header": "Authorization", "prompt": "A GitHub personal access token (github.com/settings/tokens)",
-              "prefix": "Bearer ", "secret": True}]},
+     "spec": {"type": "http", "url": "https://api.githubcopilot.com/mcp/", "auth": "github"},
+     "needs": "github-signin"},
     {"id": "fetch", "title": "Web pages (fetch)", "publisher": "Model Context Protocol (official)",
      "why": "Read web pages and documentation as clean text.",
      "spec": {"command": "uvx", "args": ["mcp-server-fetch"]}, "needs": "uv"},
@@ -105,6 +104,13 @@ def ensure_runtime(needs, spec):
         subprocess.run([sys.executable, "-m", "pip", "install", "--user", "--quiet", "uv"])
         # run through this Python so PATH doesn't matter: `python -m uv tool run <pkg>` == `uvx <pkg>`
         return {**spec, "command": sys.executable, "args": ["-m", "uv", "tool", "run", *spec["args"]]}
+    if needs == "github-signin":
+        from . import gitops
+        if not gitops.account(refresh=True)["signed_in"]:
+            ui.info("This connector uses your GitHub sign-in.")
+            if not gitops.login():
+                raise RuntimeError("Not signed in to GitHub - run  windmill git login , then add the connector again.")
+        return spec
     if needs == "docker" and not shutil.which("docker"):
         raise RuntimeError("This connector runs in Docker - install Docker Desktop first.")
     return spec

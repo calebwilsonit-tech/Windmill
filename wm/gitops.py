@@ -191,9 +191,156 @@ def cmd(args):
         commit(root, " ".join(rest) or None)
     elif sub in ("connect", "remote"):
         set_remote(root, rest[0] if rest else ui.ask("GitHub repo (owner/name or URL)"))
+    elif sub in ("login", "signin", "sign-in"):
+        login()
+    elif sub in ("logout", "signout", "sign-out"):
+        logout()
+    elif sub == "repos":
+        repos_cmd()
     elif sub in ("clone", "open"):
         url = rest[0] if rest else ui.ask("GitHub repo to open (owner/name or URL)")
         if url:
             clone(url, rest[1] if len(rest) > 1 else None)
     else:
-        print("windmill git [status | sync [message] | pull | push | commit [message] | connect <repo> | clone <repo>]")
+        print("windmill git [status | sync [message] | pull | push | commit [message] | connect <repo> | clone <repo> |"
+              " login | logout | repos]")
+
+
+# ------------------------------------------------------------------ GitHub sign-in (like Claude's GitHub access)
+# Uses Git Credential Manager (ships with Git for Windows): a browser sign-in, and the token is kept in the
+# Windows Credential Manager - Windmill never stores it itself. Git push/pull then use the same sign-in.
+import json  # noqa: E402
+import shutil  # noqa: E402
+import urllib.request  # noqa: E402
+
+API = os.environ.get("WINDMILL_GITHUB_API", "https://api.github.com")  # override only for tests
+_CACHE = {}
+
+
+def _gcm():
+    for name in ("git-credential-manager", "git-credential-manager-core"):
+        if shutil.which(name):
+            return name
+    rc, out, _ = git(".", "--exec-path", timeout=10)
+    if rc == 0:
+        for name in ("git-credential-manager.exe", "git-credential-manager-core.exe"):
+            ex = Path(out)  # e.g. C:/Program Files/Git/mingw64/libexec/git-core
+            for d in (ex, ex.parent.parent / "bin", ex.parent.parent.parent / "mingw64" / "bin", ex.parent.parent.parent / "bin"):
+                if (d / name).exists():
+                    return str(d / name)
+    return None
+
+
+def token():
+    """The github.com token git already has (never prompts)."""
+    env = {**ENV, "GCM_INTERACTIVE": "never", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+    try:
+        r = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n", capture_output=True,
+                           text=True, timeout=20, env=env)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    vals = dict(line.split("=", 1) for line in r.stdout.splitlines() if "=" in line)
+    return vals.get("password") if r.returncode == 0 else None
+
+
+def api(path, tok=None):
+    tok = tok or token()
+    if not tok:
+        return None
+    req = urllib.request.Request(API + path, headers={"Authorization": f"Bearer {tok}", "User-Agent": "windmill",
+                                                      "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+def account(refresh=False):
+    """{'signed_in': bool, 'login', 'name', 'avatar'} - cached for a few minutes."""
+    c = _CACHE.get("account")
+    if c and not refresh and time.time() - c[0] < 300:
+        return c[1]
+    info = {"signed_in": False}
+    try:
+        u = api("/user")
+        if u:
+            info = {"signed_in": True, "login": u["login"], "name": u.get("name") or u["login"], "avatar": u.get("avatar_url")}
+    except Exception as e:  # noqa: BLE001 - expired/invalid token or offline
+        info = {"signed_in": False, "error": str(e)[:200]}
+    _CACHE["account"] = (time.time(), info)
+    return info
+
+
+def my_repos():
+    out = []
+    for page in range(1, 6):
+        batch = api(f"/user/repos?per_page=100&page={page}&sort=updated&affiliation=owner,collaborator,organization_member")
+        if not batch:
+            break
+        out += [{"full_name": r["full_name"], "private": r["private"], "description": r.get("description") or "",
+                 "updated": r.get("pushed_at") or r.get("updated_at"), "url": r["clone_url"], "web": r["html_url"]}
+                for r in batch]
+        if len(batch) < 100:
+            break
+    return out
+
+
+def _store(login, tok):
+    data = f"protocol=https\nhost=github.com\nusername={login}\npassword={tok}\n\n"
+    subprocess.run(["git", "credential", "approve"], input=data, text=True, capture_output=True, env=ENV, timeout=20)
+
+
+def login():
+    a = account(refresh=True)
+    if a["signed_in"]:
+        ui.ok(f"Already signed in to GitHub as {a['login']}.")
+        return True
+    gcm = _gcm()
+    if gcm:
+        ui.info("A GitHub sign-in window is opening - choose 'Sign in with your browser' and approve Windmill's access.")
+        r = subprocess.run([gcm, "github", "login"], env={**os.environ, "GCM_INTERACTIVE": "always"})
+        a = account(refresh=True)
+        if a["signed_in"]:
+            ui.ok(f"Signed in to GitHub as {a['login']}. Windmill can now see your repos, and push/pull just works.")
+            return True
+        if r.returncode:
+            ui.warn("The sign-in window didn't finish.")
+    else:
+        ui.warn("Git's sign-in helper wasn't found (it comes with Git for Windows).")
+    print(ui.dim("  You can sign in with a token instead: github.com/settings/tokens > 'Generate new token (classic)',\n"
+                 "  tick 'repo' (and 'workflow' if you use Actions), then paste it here."))
+    tok = ui.ask("GitHub token (or Enter to cancel)")
+    if not tok:
+        return False
+    try:
+        u = api("/user", tok.strip())
+    except Exception as e:  # noqa: BLE001
+        ui.err(f"That token didn't work: {e}")
+        return False
+    _store(u["login"], tok.strip())
+    a = account(refresh=True)
+    (ui.ok if a["signed_in"] else ui.warn)(f"Signed in to GitHub as {u['login']}." if a["signed_in"] else
+                                           "The token works but git didn't save it - is a credential helper set up?")
+    return a["signed_in"]
+
+
+def logout():
+    a = account(refresh=True)
+    gcm = _gcm()
+    if gcm and a.get("login"):
+        subprocess.run([gcm, "github", "logout", a["login"]], capture_output=True)
+    tok = token()
+    if tok:
+        subprocess.run(["git", "credential", "reject"], input="protocol=https\nhost=github.com\n\n", text=True,
+                       capture_output=True, env=ENV, timeout=20)
+    _CACHE.pop("account", None)
+    ui.ok("Signed out of GitHub on this PC.")
+
+
+def repos_cmd():
+    a = account()
+    if not a["signed_in"]:
+        ui.warn("Not signed in - run  windmill git login  first.")
+        return
+    rs = my_repos()
+    for r in rs:
+        print(f"  {'🔒' if r['private'] else '  '} {r['full_name']:<45} {ui.dim(r['description'][:60])}")
+    print(ui.dim(f"\n  {len(rs)} repos. Open one:  windmill git clone owner/name"))

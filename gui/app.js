@@ -538,7 +538,42 @@ async function openProjPop(anchor) {
   $$("#pp-recent [data-forget]").forEach(b => b.onclick = async e => { e.stopPropagation(); await api("/api/projects/forget", { path: b.dataset.forget }); b.parentElement.remove(); });
   renderGit(g);
   place();
+  renderAccount(await api("/api/github"));
+  place();
 }
+function renderAccount(a) {
+  const box = $("#pp-account");
+  box.innerHTML = a.signed_in
+    ? `${a.avatar ? `<img src="${esc(a.avatar)}" alt="" width="20" height="20" class="avatar">` : ""}<span>Signed in as <b>${esc(a.login)}</b></span>
+       <span class="spacer"></span><button class="ghost small" id="gh-repos">Your repos…</button><button class="icon-btn" id="gh-logout" title="Sign out of GitHub">⎋</button>`
+    : `<span class="muted">Sign in so Windmill can see your repos and push to them.</span><span class="spacer"></span><button class="primary small" id="gh-login">Sign in to GitHub</button>`;
+  if ($("#gh-login")) $("#gh-login").onclick = () => { closeProjPop(); runTask(["git", "login"], { title: "Sign in to GitHub", onExit: () => api("/api/github?refresh=1") }); };
+  if ($("#gh-logout")) $("#gh-logout").onclick = () => { closeProjPop(); runTask(["git", "logout"], { title: "Sign out of GitHub" }); };
+  if ($("#gh-repos")) $("#gh-repos").onclick = () => { closeProjPop(); openRepos(); };
+}
+async function openRepos() {
+  $("#repos-modal").classList.remove("hidden");
+  $("#repos-search").value = "";
+  $("#repos-list").innerHTML = `<div class="muted">Loading your repos…</div>`;
+  const r = await api("/api/github/repos");
+  if (r.error) { $("#repos-list").innerHTML = `<div class="bad-text">${esc(r.error)}</div>`; return; }
+  S.repos = r.repos;
+  renderRepos();
+  $("#repos-search").focus();
+}
+function renderRepos() {
+  const q = $("#repos-search").value.toLowerCase().trim();
+  const list = (S.repos || []).filter(r => !q || (r.full_name + " " + r.description).toLowerCase().includes(q));
+  $("#repos-list").innerHTML = list.map(r => `<div class="repo-row"><div class="repo-main"><b>${r.private ? "🔒 " : ""}${esc(r.full_name)}</b>
+      <small>${esc(r.description || "")}${r.updated ? ` · updated ${ago(Date.parse(r.updated) / 1000)}` : ""}</small></div>
+      <button class="primary small" data-open="${esc(r.full_name)}" title="Download it and work in it">Open</button>
+      <button class="ghost small" data-connect="${esc(r.full_name)}" title="Make the current folder sync with this repo">Use for this folder</button></div>`).join("")
+    || `<div class="muted">No repos match.</div>`;
+  $$("#repos-list [data-open]").forEach(b => b.onclick = () => { $("#repos-modal").classList.add("hidden"); gitTask(["clone", b.dataset.open], "Open " + b.dataset.open); });
+  $$("#repos-list [data-connect]").forEach(b => b.onclick = () => { $("#repos-modal").classList.add("hidden"); gitTask(["connect", b.dataset.connect], "Connect " + b.dataset.connect); });
+}
+$("#repos-search").oninput = renderRepos;
+$("#repos-close").onclick = () => $("#repos-modal").classList.add("hidden");
 function renderGit(g) {
   const conn = g.repo && g.remote;
   $("#pp-git").innerHTML = !g.repo ? `<span class="muted">Not using GitHub yet - connect a repo below (it starts version history for you).</span>`

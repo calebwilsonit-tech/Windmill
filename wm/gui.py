@@ -453,6 +453,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/projects-home":
             from . import project as proj
             return self._json({"path": str(proj.projects_home())})
+        if path == "/api/github":
+            from . import gitops
+            return self._json(gitops.account(refresh=q.get("refresh", ["0"])[0] == "1"))
+        if path == "/api/github/repos":
+            from . import gitops
+            try:
+                return self._json({"repos": gitops.my_repos()})
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": str(e)[:300]}, 502)
         if path == "/api/git":
             from . import gitops
             return self._json(gitops.info(project()))
