@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2 - 2026-11-13 (fix)
+- fix: desktop app setup retries, shows progress and logs failures; doctor shows app status
+- (released automatically from the commit messages)
+
 ## 1.2.1 - 2026-11-13 (fix)
 - fix: make the desktop app easy to find and always installable
 - (released automatically from the commit messages)
