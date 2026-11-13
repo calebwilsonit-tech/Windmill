@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0 - 2026-11-13 (minor)
+- feat: first-start setup check in the app - one popup installs what's missing (llama.cpp, Git, Rust, C++ build tools) silently in the background; sturdier llama.cpp download
+- (released automatically from the commit messages)
+
 ## 1.6.0 - 2026-11-13 (minor)
 - feat: web access - the AI can search the web and read pages, and always opens links you give it (Settings: web_access)
 - (released automatically from the commit messages)
