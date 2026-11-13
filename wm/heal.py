@@ -24,8 +24,15 @@ def search_roots():
     home = Path.home()
     roots = [(config.KIT / "llama.cpp", 6), (home / "Downloads", 4), (home / "Desktop", 4), (home / "Documents", 4),
              (home / "llama.cpp", 6), (home / "llama", 5), (home / "AI", 5), (home / "tools", 5), (home, 2)]
+    # Windows 11 often keeps Desktop/Documents/Downloads inside OneDrive
+    for od in [home / "OneDrive", *sorted(home.glob("OneDrive - *"))]:
+        for sub in ("Desktop", "Documents", "Downloads"):
+            roots.append((od / sub, 4))
     if os.name == "nt":
         la = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
+        for drive in "DEFG":  # top-level folders on other drives
+            for name in ("llama.cpp", "llama", "AI", "tools"):
+                roots.append((Path(f"{drive}:/{name}"), 5))
         roots += [(Path("C:/llama.cpp"), 6), (Path("C:/llama"), 5), (Path("C:/AI"), 5), (Path("C:/tools"), 5),
                   (Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "llama.cpp", 5),
                   (la / "Microsoft" / "WinGet" / "Packages", 4), (la / "Microsoft" / "WinGet" / "Links", 1),
@@ -78,6 +85,43 @@ def candidates(cfg=None):
         for p in _walk(root, depth, EXE):
             add(p)
     return out
+
+
+def looks_like_source(d):
+    """The 'Source code (zip)' from the releases page: code to compile, no program to run."""
+    d = Path(d)
+    return (d / "CMakeLists.txt").exists() and ((d / "ggml").is_dir() or (d / "convert_hf_to_gguf.py").exists()
+                                                 or (d / "tools").is_dir() or (d / "examples").is_dir())
+
+
+def mistaken_folders():
+    """llama.cpp folders that hold the wrong download: source code, CUDA runtime only, or another OS's build."""
+    out, seen = [], set()
+    for root, depth in search_roots():
+        if not Path(root).is_dir():
+            continue
+        dirs = [Path(root)] + [p for p in Path(root).glob("*") if p.is_dir()] + [p for p in Path(root).glob("*/*") if p.is_dir()]
+        for d in dirs:
+            if "llama" not in d.name.lower() or d in seen:
+                continue
+            seen.add(d)
+            if any(_walk(d, 4, EXE)):
+                continue
+            if looks_like_source(d) or any(looks_like_source(c) for c in d.glob("*") if c.is_dir()):
+                out.append((d, "source code"))
+            elif any(d.glob("cudart64*.dll")) or any(d.glob("cublas64*.dll")):
+                out.append((d, "CUDA runtime only"))
+            elif os.name == "nt" and any(_walk(d, 4, "llama-server")):
+                out.append((d, "Mac/Linux build"))
+    return out
+
+
+EXPLAIN = {
+    "source code": "that's llama.cpp's SOURCE CODE (the 'Source code (zip)' on the releases page) - code to build "
+                   "the program, not the program itself",
+    "CUDA runtime only": "that's only the CUDA runtime (the 'cudart' zip) - the program itself is in the other zip",
+    "Mac/Linux build": "that's the Mac/Linux build - Windows needs the '-win-' zip",
+}
 
 
 def downloaded_zips():
@@ -210,6 +254,8 @@ def ensure_llama(cfg=None, quiet=False, allow_download=True):
         return b
     for b, status, detail, _ in results:
         say(f"Found {b}, but it's not usable ({status}: {detail[:120]}).")
+    for d, kind in mistaken_folders():
+        say(f"Your folder {d} isn't usable: {EXPLAIN[kind]}. No problem - Windmill will get the right one.")
     if not allow_download:
         return None
     if results and any(r[1] == "old" for r in results):
@@ -250,6 +296,8 @@ def report():
     found = candidates(cfg)
     if not found:
         print("  none found" + (f" (but {len(downloaded_zips())} downloaded zip(s) in Downloads)" if downloaded_zips() else ""))
+    for d, kind in mistaken_folders():
+        print(f"  {ui.yellow('wrong download')} {d}: {EXPLAIN[kind]}")
     for b in found:
         status, detail, _ = probe(b)
         mark = ui.green("ok ") if status == "ok" else ui.yellow(status)
