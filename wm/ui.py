@@ -7,7 +7,17 @@ import threading
 import time
 
 if os.name == "nt":
-    os.system("")  # enables ANSI escape codes in Windows consoles
+    # Turn on colour codes in the Windows console directly. (The usual trick, os.system(""), starts cmd.exe -
+    # which flashes a console window whenever Windmill runs without one, e.g. inside the desktop app.)
+    try:
+        import ctypes
+        _k32 = ctypes.windll.kernel32
+        for _h in (-11, -12):  # stdout, stderr
+            _handle, _mode = _k32.GetStdHandle(_h), ctypes.c_uint32()
+            if _handle and _k32.GetConsoleMode(_handle, ctypes.byref(_mode)):
+                _k32.SetConsoleMode(_handle, _mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    except Exception:  # noqa: BLE001
+        pass
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8", errors="replace")
