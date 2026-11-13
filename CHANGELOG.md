@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1 - 2026-11-13 (fix)
+- fix: in-app updates always restart (no more stuck on 'Updating'), show each step, and the tray icon updates itself
+- (released automatically from the commit messages)
+
 ## 1.4.0 - 2026-11-13 (minor)
 - feat: sign in to GitHub inside Windmill - your repos list, open/connect in one click, GitHub connector uses the sign-in
 - (released automatically from the commit messages)
