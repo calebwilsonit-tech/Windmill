@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.7 - 2026-11-13 (fix)
+- fix: build steps started from the app crashed (they ran on pythonw with nowhere to print); Windows release test now runs tasks the way the app does
+- (released automatically from the commit messages)
+
 ## 1.4.6 - 2026-11-13 (fix)
 - fix: builds started from the app lost their output and failed; build stops now show the real reason, and changes made outside the build are saved first
 - (released automatically from the commit messages)
