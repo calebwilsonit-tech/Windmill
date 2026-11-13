@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1 - 2026-11-13 (fix)
+- fix: use the NVIDIA graphics card - prefer (or download) the CUDA build of llama.cpp when the current one is CPU-only; doctor and start-up check it
+- (released automatically from the commit messages)
+
 ## 1.5.0 - 2026-11-13 (minor)
 - feat: builds and new projects run in a chat (plan, thinking, narration, code being written, questions as buttons), message queue, Projects page, Code library page
 - (released automatically from the commit messages)
