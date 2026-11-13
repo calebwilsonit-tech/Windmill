@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0 - 2026-11-13 (minor)
+- feat: web access - the AI can search the web and read pages, and always opens links you give it (Settings: web_access)
+- (released automatically from the commit messages)
+
 ## 1.5.1 - 2026-11-13 (fix)
 - fix: use the NVIDIA graphics card - prefer (or download) the CUDA build of llama.cpp when the current one is CPU-only; doctor and start-up check it
 - (released automatically from the commit messages)
