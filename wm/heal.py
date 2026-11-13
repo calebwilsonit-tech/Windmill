@@ -6,6 +6,7 @@ cudart DLLs) or too old for new models. Windmill looks everywhere, test-runs eac
 and downloads a fresh one only when nothing usable exists. It also re-finds a model file that was moved.
 Setting `auto_fix` (default true) - set it to false to be asked instead."""
 import os
+import time
 import re
 import shutil
 import subprocess
@@ -165,6 +166,25 @@ def is_cuda_build(binary):
     return any(d.glob("ggml-cuda*")) or "cuda" in str(binary).lower()
 
 
+def is_gpu_build(binary):
+    """Can this llama.cpp use a graphics card at all? (CUDA for NVIDIA, or Vulkan.)"""
+    d = Path(binary).parent
+    return is_cuda_build(binary) or any(d.glob("ggml-vulkan*")) or "vulkan" in str(binary).lower()
+
+
+_NV = {}
+
+
+def has_nvidia():
+    if "v" not in _NV:
+        try:
+            from .models import nvidia_smi
+            _NV["v"] = bool(nvidia_smi())
+        except Exception:  # noqa: BLE001
+            _NV["v"] = False
+    return _NV["v"]
+
+
 def add_cudart(binary):
     """Fix a CUDA build that can't start because the CUDA runtime DLLs aren't next to it."""
     d = Path(binary).parent
@@ -229,7 +249,8 @@ def ensure_llama(cfg=None, quiet=False, allow_download=True):
     cfg = cfg or config.load()
     say = (lambda m: None) if quiet else ui.info
     cur = cfg.get("llama_server")
-    if cur and Path(cur).is_file() and probe(cur)[0] == "ok":
+    nv = has_nvidia()  # an NVIDIA card: only a CUDA/Vulkan build uses it - a CPU-only build is several times slower
+    if cur and Path(cur).is_file() and (not nv or is_gpu_build(cur)) and probe(cur)[0] == "ok":
         return cur
     found = candidates(cfg)
     if not found:
@@ -245,7 +266,24 @@ def ensure_llama(cfg=None, quiet=False, allow_download=True):
             if add_cudart(b):
                 status, detail, build = probe(b)
         results.append((b, status, detail, build))
-    good = sorted([r for r in results if r[1] == "ok"], key=lambda r: (r[3] or 0, is_cuda_build(r[0])), reverse=True)
+    good = sorted([r for r in results if r[1] == "ok"],
+                  key=lambda r: (nv and is_gpu_build(r[0]), r[3] or 0, is_cuda_build(r[0])), reverse=True)
+    if good and nv and not is_gpu_build(good[0][0]) and allow_download and \
+            time.time() - cfg.get("gpu_build_tried", 0) > 86400:
+        say("Your llama.cpp can't use your NVIDIA graphics card (it runs everything on the processor, which is several "
+            "times slower) - getting the graphics-card (CUDA) version...")
+        config.set_value("gpu_build_tried", time.time())
+        try:
+            from .server import install_llamacpp
+            b = install_llamacpp()
+            if b and probe(b)[0] == "missing-dlls" and os.name == "nt":
+                add_cudart(b)
+            if b and probe(b)[0] == "ok" and is_gpu_build(b):
+                config.set_value("llama_server", str(b))
+                ui.ok("Now using your graphics card for the AI.")
+                return str(b)
+        except Exception as e:  # noqa: BLE001
+            ui.warn(f"Couldn't get the graphics-card version ({e}) - using the one you have for now.")
     if good:
         b = str(good[0][0])
         if b != cur:

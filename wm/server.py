@@ -3,6 +3,7 @@ and download llama.cpp itself if it's missing."""
 import io
 import json
 import os
+import re
 import platform
 import shutil
 import signal
@@ -115,6 +116,14 @@ def start(cfg=None, quiet=False, wait=True):
     if health(cfg):
         if not quiet:
             ui.ok("Model is ready.")
+        try:  # double-check the graphics card is really in use (the log names the GPU backend when it is)
+            from . import heal
+            log = LOG.read_text(encoding="utf-8", errors="replace") if LOG.exists() else ""
+            if heal.has_nvidia() and log and not re.search(r"CUDA\d|Vulkan\d|offloaded \d+/\d+ layers to GPU", log):
+                ui.warn("The AI is running on the processor only, not your graphics card (much slower). "
+                        "Run  windmill fix  to get the graphics-card version of llama.cpp.")
+        except Exception:  # noqa: BLE001
+            pass
         return True
     ui.err("The model server didn't start. Last lines of the log:")
     print(ui.dim(tail_log(15)))

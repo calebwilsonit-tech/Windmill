@@ -272,6 +272,16 @@ def run_setup(update_llama=False):
         print(f"  Make something new:          {ui.bcyan('windmill new')}")
 
 
+def _gpu_status():
+    from . import heal
+    if not heal.has_nvidia():
+        return "no NVIDIA card found (the AI runs on the processor)"
+    b = config.load().get("llama_server")
+    if not b:
+        return "llama.cpp not set up yet"
+    return "used (CUDA build)" if heal.is_gpu_build(b) else "NOT used - run  windmill fix  to get the graphics-card version"
+
+
 def _cmd_status():
     import shutil
     w = shutil.which("windmill")
@@ -313,6 +323,7 @@ def doctor():
         ("Model", cfg.get("model_name") or "none selected - run windmill models", bool(models.current_model(cfg))),
         ("Model server", "running" if server.health(cfg) else "stopped (starts automatically when needed)", True),
         ("Desktop app", _app_status(), True),
+        ("Graphics card for AI", _gpu_status(), True),
         ("windmill command", _cmd_status(), True),
         ("Library", "ready" if (config.KIT / "corpus" / "corpus.db").exists() else "not downloaded (windmill library fetch)", True),
         ("Android", "ready (.apk builds)" if _android_ok() else "not set up (optional: windmill android setup)", True),
