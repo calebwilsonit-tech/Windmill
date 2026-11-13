@@ -160,8 +160,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .job-main span { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
 .job-icon { width: 18px; height: 18px; line-height: 1; border-radius: 99px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--accent-ink); flex: none; }
 .job-icon.ok { background: var(--ok); } .job-icon.bad { background: var(--bad); } .job-icon.ask { background: var(--accent); }
-.ask-context { max-height: 38vh; overflow: auto; font-size: 12.5px; margin: 8px 0; }
-#ask-question { margin: 8px 0 4px; font-size: 16px; }
+.ask-context { max-height: 40vh; overflow: auto; white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; margin: 6px 0 4px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+#ask-heading { margin: 4px 0 6px; font-size: 18px; }
+.ask-question { font-weight: 600; margin: 8px 0 2px; }
+.ask-question:empty { display: none; }
+#ask-modal .modal-card { max-height: calc(100vh - 14vh - 24px); overflow-y: auto; }
+#ask-modal .choices button { max-width: none; }
+.choices button.choice-cancel { border-color: var(--line); }
 .modal-card input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
 .modal-card h2 { margin: 0 0 4px; font-size: 18px; }
 .modal { overflow-y: auto; }

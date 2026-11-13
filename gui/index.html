@@ -208,9 +208,10 @@
 </div>
 <div id="ask-modal" class="modal hidden" role="dialog" aria-label="Windmill needs your answer">
   <div class="modal-card">
-    <div class="muted small" id="ask-title"></div>
-    <pre id="ask-context" class="console ask-context"></pre>
-    <h3 id="ask-question"></h3>
+    <div class="row"><div class="muted small" id="ask-title" style="flex:1"></div><button class="icon-btn" id="ask-close" title="Close - the task waits in the corner until you answer">✕</button></div>
+    <h3 id="ask-heading"></h3>
+    <div id="ask-context" class="ask-context"></div>
+    <div id="ask-question" class="ask-question"></div>
     <div id="ask-choices" class="choices"></div>
     <div id="ask-free" class="row" style="margin-top:10px"><input id="ask-input" style="flex:1" autocomplete="off"><button class="primary" id="ask-send">OK</button></div>
     <div class="row right" style="margin-top:12px"><button class="ghost small" id="ask-details">Show details</button><button class="ghost small" id="ask-stop">Stop</button></div>

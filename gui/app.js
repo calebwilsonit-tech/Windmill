@@ -291,7 +291,7 @@ const strip = t => t.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
 // ---------------------------------------------------------------- background tasks
 // Every command runs in the background. A small tray shows what's running, questions pop up as dialogs,
 // and the full command output is one click away ("Details").
-S.tasks = {}; S.consoleTask = null;
+S.tasks = {}; S.consoleTask = null; S.askHidden = {};
 const lastLines = (t, n) => strip(applyCR(t)).split("\n").filter(l => l.trim()).slice(-n);
 
 function promptOf(text) {  // is the program waiting for an answer? -> {question, def, choices, yn}
@@ -311,6 +311,7 @@ function promptOf(text) {  // is the program waiting for an answer? -> {question
   return { question: lastLine.replace(/^\?\s*/, "").replace(/\s*\(Y\/n\)|\s*\(y\/N\)/, ""), def, choices, yn };
 }
 const choiceButtons = choices => choices.map(([k, label]) => {
+  if (/^back \/ exit$/.test(label.trim())) return `<button data-v="${esc(k)}" class="choice-cancel"><b>Cancel</b></button>`;
   const [main, ...rest] = label.split(/ {2,}/);
   return `<button data-v="${esc(k)}"><b>${esc(main)}</b>${rest.length ? `<small>${esc(rest.join("  "))}</small>` : ""}</button>`;
 }).join("");
@@ -332,7 +333,7 @@ function renderConsole() {
   $$("button", choices).forEach(b => b.onclick = () => taskInput(t.id, b.dataset.v));
   setTimeout(() => $("#console-input").focus(), 0);
 }
-async function taskInput(id, v) { if (id && S.tasks[id]) { await api(`/api/tasks/${id}/input`, { text: v }); $("#console-input").value = ""; $("#ask-input").value = ""; } }
+async function taskInput(id, v) { if (id && S.tasks[id]) { delete S.askHidden[id]; await api(`/api/tasks/${id}/input`, { text: v }); $("#console-input").value = ""; $("#ask-input").value = ""; } }
 $("#console-send").onclick = () => taskInput(S.consoleTask, $("#console-input").value);
 $("#console-input").onkeydown = e => { if (e.key === "Enter") taskInput(S.consoleTask, $("#console-input").value); };
 $("#cmd-stop").onclick = () => S.consoleTask && api(`/api/tasks/${S.consoleTask}/stop`, {});
@@ -391,13 +392,14 @@ function renderJobs() {
     const id = el.dataset.id, act = e.target.dataset.act;
     if (act === "stop") return api(`/api/tasks/${id}/stop`, {});
     if (act === "close") { delete S.tasks[id]; return renderJobs(); }
-    if (act === "details" || S.tasks[id] && promptOf(S.tasks[id].text)) showDetails(id);
+    if (act === "details") return showDetails(id);
+    if (S.tasks[id] && !S.tasks[id].done && promptOf(S.tasks[id].text)) { delete S.askHidden[id]; S.asking = null; renderAsk(); }
   });
 }
 
 // questions from background tasks pop up as a dialog (not when you're already looking at that task's console)
 function renderAsk() {
-  const t = Object.values(S.tasks).find(t => !t.done && promptOf(t.text) && !(S.view === "console" && S.consoleTask === t.id));
+  const t = Object.values(S.tasks).find(t => !t.done && !S.askHidden[t.id] && promptOf(t.text) && !(S.view === "console" && S.consoleTask === t.id));
   const m = $("#ask-modal");
   if (!t) { m.classList.add("hidden"); S.asking = null; return; }
   const p = promptOf(t.text);
@@ -405,20 +407,28 @@ function renderAsk() {
   if (S.asking === key) return;
   S.asking = key;
   $("#ask-title").textContent = t.title;
-  const ctx = applyCR(t.text).split("\n").slice(-40, -1).filter(l => !/^\$ windmill /.test(strip(l))).join("\n");
-  $("#ask-context").innerHTML = ansiToHtml(ctx);
-  $("#ask-context").classList.toggle("hidden", !strip(ctx).trim());
-  setTimeout(() => { $("#ask-context").scrollTop = 1e9; }, 0);
-  $("#ask-question").textContent = p.question.replace(/\s*\[[^\]]*\]\s*$/, "");
+  // A clean question, not a terminal: the menu's title as the heading, the choices as buttons, and (only for
+  // plain questions) the information printed just before it - e.g. the project plan - as normal text.
+  const plain = strip(applyCR(t.text));
+  const titles = [...plain.matchAll(/── (.+?) ─{2,}/g)];
+  const section = titles.length ? plain.slice(titles[titles.length - 1].index) : plain;
+  const lines = section.split("\n").slice(1, -1).filter(l => l.trim() && !/^\$ windmill /.test(l) && !/^[⠁-⣿]\s/.test(l));
+  const question = p.question.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
+  $("#ask-heading").textContent = titles.length ? titles[titles.length - 1][1] : question;
+  $("#ask-question").textContent = titles.length && question !== $("#ask-heading").textContent && !/^(Choose|Pick)$/i.test(question) ? question : "";
+  const info = p.choices.length ? [] : lines.slice(-30);
+  $("#ask-context").textContent = info.join("\n");
+  $("#ask-context").classList.toggle("hidden", !info.length);
   $("#ask-choices").innerHTML = choiceButtons(p.choices);
   $$("#ask-choices button").forEach(b => b.onclick = () => taskInput(t.id, b.dataset.v));
-  const free = !p.yn;
+  const free = !p.yn && !p.choices.length;
   $("#ask-free").classList.toggle("hidden", !free);
   $("#ask-input").value = ""; $("#ask-input").placeholder = p.def ? `Enter for "${p.def}"` : (p.choices.length ? "or type your answer" : "Type your answer");
   $("#ask-send").onclick = () => taskInput(t.id, $("#ask-input").value);
   $("#ask-input").onkeydown = e => { if (e.key === "Enter") taskInput(t.id, $("#ask-input").value); };
   $("#ask-details").onclick = () => showDetails(t.id);
   $("#ask-stop").onclick = () => api(`/api/tasks/${t.id}/stop`, {});
+  $("#ask-close").onclick = () => { S.askHidden[t.id] = true; S.asking = null; m.classList.add("hidden"); toast("It'll wait for your answer - click it in the corner when you're ready."); };
   m.classList.remove("hidden");
   if (free) setTimeout(() => $("#ask-input").focus(), 0);
 }
