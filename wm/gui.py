@@ -646,13 +646,31 @@ def source_hash():
     return hashlib.sha1(LAUNCHER_SRC.read_bytes()).hexdigest()[:12] if LAUNCHER_SRC.exists() else ""
 
 
-def build_exe(quiet=False):
-    """Compile Windmill.exe from launcher/Windmill.cs with the C# compiler built into Windows."""
-    c = csc()
-    if not c:
-        if not quiet:
-            ui.err("The C# compiler that ships with Windows (.NET Framework 4) wasn't found.")
+def download_exe(out):
+    """Fallback: the Windmill.exe GitHub built for this exact version (attached to the release)."""
+    import urllib.request
+    from . import update
+    src, _ = update.source()
+    m = re.search(r"github\.com[/:]([^/]+)/([^/.]+)", src or "")
+    if not m:
         return None
+    url = f"https://github.com/{m.group(1)}/{m.group(2)}/releases/download/v{version.current()}/Windmill.exe"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "windmill"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+        if data[:2] != b"MZ":  # not a Windows program
+            return None
+        out.write_bytes(data)
+        return out
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def build_exe(quiet=False):
+    """Compile Windmill.exe from launcher/Windmill.cs with the C# compiler built into Windows
+    (or download the copy GitHub built for this version if compiling isn't possible)."""
+    c = csc()
     BIN.mkdir(parents=True, exist_ok=True)
     exe = BIN / "Windmill.exe"
     out = exe
@@ -664,11 +682,16 @@ def build_exe(quiet=False):
     icon = WEB / "windmill.ico"
     r = subprocess.run([c, "/nologo", "/target:winexe", "/optimize+", f"/out:{out}", f"/win32icon:{icon}",
                         "/r:System.Windows.Forms.dll", "/r:System.Net.Http.dll", str(LAUNCHER_SRC)],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        if not quiet:
-            ui.err("Building Windmill.exe failed:\n" + (r.stdout + r.stderr)[-1500:])
-        return None
+                       capture_output=True, text=True) if c else None
+    if r is None or r.returncode != 0:
+        if download_exe(out):
+            if not quiet:
+                ui.info("Couldn't build Windmill.exe here, so downloaded the copy GitHub built for this version.")
+        else:
+            if not quiet:
+                ui.err("Couldn't build or download Windmill.exe." +
+                       ("\n" + (r.stdout + r.stderr)[-1500:] if r else " (no C# compiler found)"))
+            return None
     pyw = Path(sys.executable).with_name("pythonw.exe")
     (BIN / "python.txt").write_text(str(pyw if pyw.exists() else sys.executable), encoding="utf-8")
     (BIN / "launcher.hash").write_text(source_hash(), encoding="utf-8")
@@ -678,7 +701,7 @@ def build_exe(quiet=False):
 def shortcuts():
     exe = BIN / "Windmill.exe"
     ps = ("$s = New-Object -ComObject WScript.Shell; "
-          "foreach ($p in @([Environment]::GetFolderPath('Desktop'), "
+          f"foreach ($p in @([Environment]::GetFolderPath('Desktop'), '{config.KIT}', "
           "(Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'))) { "
           "$l = $s.CreateShortcut((Join-Path $p 'Windmill.lnk')); "
           f"$l.TargetPath = '{exe}'; $l.WorkingDirectory = '{config.KIT}'; "
