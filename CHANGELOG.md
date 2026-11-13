@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.3 - 2026-11-13 (fix)
+- fix: no more popups when you click things - background tasks show as a quiet indicator in the top bar instead of flash messages and corner cards
+- (released automatically from the commit messages)
+
 ## 1.4.2 - 2026-11-13 (fix)
 - fix: questions pop up as a clean chooser (no terminal text), with a close button; closed questions wait in the corner tray
 - (released automatically from the commit messages)
