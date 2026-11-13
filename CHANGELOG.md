@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.6 - 2026-11-13 (fix)
+- fix: builds started from the app lost their output and failed; build stops now show the real reason, and changes made outside the build are saved first
+- (released automatically from the commit messages)
+
 ## 1.4.5 - 2026-11-13 (fix)
 - fix: no flashing git/console windows, including after an in-app update restart (hide child windows whenever there's no console window)
 - (released automatically from the commit messages)
