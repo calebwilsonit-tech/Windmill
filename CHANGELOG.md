@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0 - 2026-11-13 (minor)
+- feat: sign in to GitHub inside Windmill - your repos list, open/connect in one click, GitHub connector uses the sign-in
+- (released automatically from the commit messages)
+
 ## 1.3.0 - 2026-11-13 (minor)
 - feat: background tasks with question popups, new-project form, folder & GitHub menu, tray icon; fix folder picker, flashing windows and the windmill command
 - (released automatically from the commit messages)
