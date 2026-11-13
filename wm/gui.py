@@ -446,6 +446,13 @@ class Handler(BaseHTTPRequestHandler):
             if not run:
                 return self._json({"error": "not running"}, 404)
             return self._sse(run, int(q.get("since", ["0"])[0]))
+        m = re.match(r"^/api/tasks/(\w+)/log$", path)  # whole output so far + exit code (tests, support)
+        if m:
+            t = TASKS.get(m.group(1))
+            if not t:
+                return self._json({"error": "no task"}, 404)
+            return self._json({"text": "".join(e.get("text", "") for e in t.events if e["type"] == "out"),
+                               "code": t.proc.poll()})
         m = re.match(r"^/api/tasks/(\w+)/events$", path)
         if m:
             t = TASKS.get(m.group(1))

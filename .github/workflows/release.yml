@@ -51,8 +51,22 @@ jobs:
           $p = Start-Process pythonw -ArgumentList "windmill.py app --serve --port 18555 --token t" -PassThru -WindowStyle Hidden
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) { Start-Sleep 1; try { $r = Invoke-WebRequest http://127.0.0.1:18555/health -UseBasicParsing; $ok = $r.StatusCode -eq 200; $r.Content } catch {} }
+          if (-not $ok) { Stop-Process $p.Id -ErrorAction SilentlyContinue; throw "the app engine did not start on Windows" }
+          # Run commands the way the app does (engine on pythonw -> task -> scripts it starts) and require clean output.
+          $proj = Join-Path $env:RUNNER_TEMP "wm smoke proj"
+          New-Item -ItemType Directory -Force $proj | Out-Null
+          Set-Content (Join-Path $proj "hello.py") "print('hi')"
+          $h = @{ "X-Windmill-Token" = "t" }
+          foreach ($cmd in @(@("check"), @("_childtest"))) {
+            $body = @{ args = $cmd; cwd = $proj } | ConvertTo-Json
+            $id = (Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18555/api/tasks -Headers $h -Body $body -ContentType "application/json").id
+            $log = $null
+            for ($i = 0; $i -lt 120; $i++) { Start-Sleep 1; $log = Invoke-RestMethod -Uri "http://127.0.0.1:18555/api/tasks/$id/log" -Headers $h; if ($null -ne $log.code) { break } }
+            Write-Host "--- windmill $($cmd -join ' ') (exit $($log.code)) ---"; Write-Host $log.text
+            if ($cmd[0] -eq "_childtest" -and ($log.text -notmatch "child ok" -or $log.code -ne 0)) { Stop-Process $p.Id -ErrorAction SilentlyContinue; throw "a program started from an app task couldn't print (pythonw problem)" }
+            if ($log.text -match "Traceback") { Stop-Process $p.Id -ErrorAction SilentlyContinue; throw "windmill $($cmd -join ' ') crashed when run from the app" }
+          }
           Stop-Process $p.Id -ErrorAction SilentlyContinue
-          if (-not $ok) { throw "the app engine did not start on Windows" }
           python windmill.py doctor
       - name: Attach to the GitHub release
         shell: pwsh

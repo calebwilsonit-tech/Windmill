@@ -9,6 +9,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Started without anywhere to print (pythonw): print to a log instead of crashing on the first output.
+if sys.stdout is None or sys.stderr is None:
+    _logdir = Path.home() / ".windmill" / "logs"
+    _logdir.mkdir(parents=True, exist_ok=True)
+    _log = open(_logdir / "app.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
+
 def _api_base():
     if os.environ.get("AI_KIT_API_BASE"):
         return os.environ["AI_KIT_API_BASE"].rstrip("/")

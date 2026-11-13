@@ -24,7 +24,7 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-COLOR = (sys.stdout.isatty() or bool(os.environ.get("FORCE_COLOR"))) and not os.environ.get("NO_COLOR")
+COLOR = (getattr(sys.stdout, "isatty", lambda: False)() or bool(os.environ.get("FORCE_COLOR"))) and not os.environ.get("NO_COLOR")
 
 
 def _c(code):
@@ -140,7 +140,7 @@ class Spinner:
         self.extra = ""
 
     def __enter__(self):
-        if not sys.stdout.isatty():
+        if not getattr(sys.stdout, "isatty", lambda: False)():
             return self
         def spin():
             start = time.time()

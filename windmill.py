@@ -19,6 +19,14 @@ if sys.stdout is None or sys.stderr is None:
     sys.stdout = sys.stdout or _log
     sys.stderr = sys.stderr or _log
 
+# The desktop app runs on pythonw.exe (no console). Programs we start with "this Python" (the build step, checks,
+# background jobs) must use the console python.exe instead - with pythonw they'd have nowhere to print and crash.
+# They still never show a window (see below).
+if os.name == "nt" and sys.executable.lower().endswith("pythonw.exe"):
+    _console_py = sys.executable[:-len("pythonw.exe")] + "python.exe"
+    if os.path.exists(_console_py):
+        sys.executable = _console_py
+
 # No visible console window (the desktop app, its background jobs, a restart after an update): every program we
 # start (git, cargo, nvidia-smi...) would otherwise get its own console window that flashes up for a moment.
 # In a normal terminal this does nothing - programs keep printing into your terminal as usual.

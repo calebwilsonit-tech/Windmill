@@ -406,6 +406,10 @@ def dispatch(argv):
         if not args:
             return ui.warn('Usage: windmill best "what to build" [-n 4]')
         server.ensure() and script("best_of_n.py", args)
+    elif cmd == "_childtest":  # release test: a program started like the build step must be able to print
+        r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import wm.ui; "
+                            "print('child ok', flush=True)", str(config.KIT)])
+        sys.exit(r.returncode)
     elif cmd == "git":
         from . import gitops
         gitops.cmd(args)
