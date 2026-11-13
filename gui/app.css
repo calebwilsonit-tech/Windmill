@@ -249,6 +249,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .lib-row { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 .lib-all { max-height: 320px; overflow-y: auto; }
 #view-library h3 { font-size: 15px; margin: 18px 0 8px; }
+/* first-start setup */
+.setup-list { display: grid; gap: 6px; margin: 10px 0; }
+.setup-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); cursor: pointer; }
+.setup-item.ok { opacity: .7; cursor: default; }
+.setup-item input { margin-top: 3px; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 10px; z-index: 20; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 @media (max-width: 760px) { #app { grid-template-columns: 1fr; } #sidebar { display: none; } }

@@ -452,6 +452,7 @@ async function runTask(args, opts = {}) {
     if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; renderAll(); }); }
   };
   renderJobs();
+  return t;
 }
 function renderAll() {
   if (S.view === "console") renderConsole();
@@ -842,8 +843,58 @@ async function startupUpdateCheck() {
     $("#um-notes").textContent = u.notes || "";
     $("#update-modal").classList.remove("hidden");
     $("#um-now").onclick = applyUpdate;
-    $("#um-later").onclick = () => { try { sessionStorage.setItem("wm-update-later", u.latest); } catch { } $("#update-modal").classList.add("hidden"); };
+    $("#um-later").onclick = () => { try { sessionStorage.setItem("wm-update-later", u.latest); } catch { } $("#update-modal").classList.add("hidden"); setupCheck(); };
+    return;
   }
+  setupCheck();
+}
+
+// ---------------------------------------------------------------- first start: quietly check what's missing, offer to install it
+async function setupCheck(force) {
+  let later = null; try { later = sessionStorage.getItem("wm-setup-later"); } catch { }
+  if (later && !force) return;
+  const r = await api("/api/setup/check");
+  if (r.error || !r.items) return;
+  const missing = r.items.filter(i => !i.ok);
+  if (!missing.length && !force) return;
+  const m = $("#setup-modal");
+  $("#setup-title").textContent = missing.length ? "Finish setting up Windmill" : "Windmill is set up";
+  $("#setup-intro").textContent = missing.length
+    ? "A few things Windmill needs aren't on this PC yet. Pick what to install - it all happens in the background, nothing to do in a terminal."
+    : "Everything Windmill needs is installed.";
+  $("#setup-list").innerHTML = r.items.map(i => `<label class="setup-item${i.ok ? " ok" : ""}">
+      ${i.ok ? `<span class="job-icon ok">✓</span>` : `<input type="checkbox" value="${i.id}" checked>`}
+      <span><b>${esc(i.name)}</b>${i.required && !i.ok ? ` <span class="badge">needed</span>` : ""}${i.ok ? ` <span class="muted small">installed</span>` : ""}<br>
+      <span class="muted small">${esc(i.why)}</span></span></label>`).join("") +
+    (r.model ? "" : `<div class="setup-item"><span class="job-icon ask">i</span><span><b>An AI model</b> <span class="muted small">- you choose this next</span><br>
+      <span class="muted small">The AI itself (a few GB). Windmill recommends the best one for this PC.</span></span></div>`);
+  $("#setup-progress").classList.add("hidden");
+  $("#setup-actions").classList.remove("hidden");
+  $("#setup-install").classList.toggle("hidden", !missing.length || !r.can_install);
+  $("#setup-note").textContent = r.can_install ? "Windows may ask for permission for some installers - that's normal." :
+    "Windows' installer isn't available on this PC: get 'App Installer' from the Microsoft Store, then reopen Windmill.";
+  $("#setup-later").textContent = missing.length ? "Not now" : "Close";
+  $("#setup-model").classList.toggle("hidden", !!r.model || !!missing.filter(i => i.required).length);
+  m.classList.remove("hidden");
+  $("#setup-later").onclick = () => { try { sessionStorage.setItem("wm-setup-later", "1"); } catch { } m.classList.add("hidden"); };
+  $("#setup-model").onclick = () => { m.classList.add("hidden"); runTask(["get-model"]); };
+  $("#setup-install").onclick = () => {
+    const ids = $$("#setup-list input:checked").map(c => c.value);
+    if (!ids.length) return;
+    $("#setup-actions").classList.add("hidden");
+    $("#setup-progress").classList.remove("hidden");
+    $("#setup-step").textContent = "Starting…";
+    runTask(["install", ...ids], { title: "Setting up Windmill", onExit: async t => {
+      clearInterval(S.setupTimer);
+      await setupCheck(true);
+      if (t.code) $("#setup-intro").textContent = "Some things couldn't be installed - see below, or click Details in the top bar to see why.";
+    } }).then(t => {
+      S.setupTimer = setInterval(() => {
+        const last = t && lastLines(t.text, 1)[0];
+        if (last) $("#setup-step").textContent = last.replace(/^[›✓!✗]\s*/, "").slice(0, 140);
+      }, 400);
+    });
+  };
 }
 
 // ---------------------------------------------------------------- start

@@ -721,6 +721,9 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             t = TASKS.get(m.group(1))
             return self._sse(t, int(q.get("since", ["0"])[0])) if t else self._json({"error": "no task"}, 404)
+        if path == "/api/setup/check":  # first start: what's missing (quiet, nothing is installed)
+            from . import setup
+            return self._json(setup.components())
         if path == "/api/projects/list":
             return self._json({"projects": projects_list()})
         if path == "/api/project/detail":

@@ -309,6 +309,128 @@ def _android_ok():
         return False
 
 
+# ------------------------------------------------------------------ first-start check + hidden installs (the app's popup)
+def refresh_path():
+    """Pick up programs installed after Windmill started (Windows keeps PATH per process)."""
+    home = Path.home()
+    extra = [home / ".cargo" / "bin"]
+    if os.name == "nt":
+        try:
+            import winreg
+            parts = []
+            for root, key in ((winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+                              (winreg.HKEY_CURRENT_USER, "Environment")):
+                try:
+                    with winreg.OpenKey(root, key) as k:
+                        parts += os.path.expandvars(winreg.QueryValueEx(k, "Path")[0]).split(";")
+                except OSError:
+                    pass
+            extra += [Path(p) for p in parts if p]
+            extra += [Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "cmd"]
+        except Exception:  # noqa: BLE001
+            pass
+    cur = os.environ.get("PATH", "").split(os.pathsep)
+    for d in extra:
+        if str(d) not in cur and d.is_dir():
+            cur.append(str(d))
+    os.environ["PATH"] = os.pathsep.join(cur)
+
+
+def _vswhere():
+    exe = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not exe.exists():
+        return False
+    r = subprocess.run([str(exe), "-products", "*", "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                        "-property", "installationPath"], capture_output=True, text=True)
+    return bool(r.stdout.strip())
+
+
+def components():
+    """What Windmill needs, and whether it's there. (The AI model itself is chosen separately.)"""
+    refresh_path()
+    from . import heal
+    cfg = config.load()
+    try:
+        llama = heal.ensure_llama(cfg, quiet=True, allow_download=False)
+    except Exception:  # noqa: BLE001
+        llama = None
+    nv = heal.has_nvidia()
+    items = [
+        {"id": "llama", "name": "AI engine (llama.cpp)", "required": True,
+         "why": "Runs the AI on this PC" + (" using your NVIDIA graphics card" if nv else "") + ". About 200-600 MB.",
+         "ok": bool(llama) and (not nv or heal.is_gpu_build(llama)),
+         "detail": llama or ""},
+        {"id": "git", "name": "Git", "required": True,
+         "why": "Saves a checkpoint after every change so nothing is ever lost; also used for updates and GitHub.",
+         "ok": have("git")},
+    ]
+    items.append({"id": "rust", "name": "Rust", "required": False,
+                  "why": "Needed for games, desktop apps, phone apps and command-line tools (not for websites).",
+                  "ok": have("cargo")})
+    if os.name == "nt":
+        items.append({"id": "buildtools", "name": "C++ build tools (Microsoft)", "required": False,
+                      "why": "Rust needs these on Windows to turn code into programs. Large download (2-3 GB).",
+                      "ok": _vswhere()})
+    has_model = bool(cfg.get("model_path")) or bool(models.discover(cfg))
+    return {"items": items, "model": has_model, "can_install": os.name != "nt" or have("winget")}
+
+
+def _winget(pkg_id, extra=()):
+    """Install silently in the background (no installer windows; Windows may still ask for permission)."""
+    r = subprocess.run(["winget", "install", "-e", "--id", pkg_id, "--silent", "--disable-interactivity",
+                        "--accept-source-agreements", "--accept-package-agreements", *extra],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    ok = r.returncode == 0 or "already installed" in (r.stdout or "").lower()
+    if not ok:
+        ui.warn((r.stdout or "").strip().splitlines()[-1] if (r.stdout or "").strip() else f"winget exit {r.returncode}")
+    return ok
+
+
+def install_components(ids):
+    """windmill install llama git rust buildtools - used by the app's setup popup; runs without any windows."""
+    from . import heal
+    ok_all = True
+    order = [i for i in ("git", "buildtools", "rust", "llama") if i in ids]
+    for n, i in enumerate(order, 1):
+        ui.rule(f"{n}/{len(order)}")
+        if i == "llama":
+            ui.info("Installing the AI engine (llama.cpp)...")
+            b = heal.ensure_llama(config.load(), quiet=False, allow_download=True)
+            if not b:
+                try:
+                    b = server.install_llamacpp()
+                except Exception as e:  # noqa: BLE001
+                    ui.err(f"Couldn't download llama.cpp: {e}")
+            (ui.ok if b else ui.err)("AI engine ready." if b else "The AI engine couldn't be installed - check the internet connection and try again.")
+            ok_all &= bool(b)
+            continue
+        if os.name != "nt":
+            ui.warn(f"Install {i} with your system's package manager (automatic install is Windows-only).")
+            ok_all = False
+            continue
+        if not have("winget"):
+            ui.err("Windows' installer (winget / 'App Installer') isn't available. Get 'App Installer' from the Microsoft Store, then try again.")
+            return False
+        if i == "git":
+            ui.info("Installing Git...")
+            ok = _winget("Git.Git")
+        elif i == "buildtools":
+            ui.info("Installing the C++ build tools (large - this can take 10-20 minutes)...")
+            ok = _winget("Microsoft.VisualStudio.2022.BuildTools", ["--override",
+                         "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"])
+        else:
+            ui.info("Installing Rust...")
+            ok = _winget("Rustlang.Rustup")
+            refresh_path()
+            if ok and shutil.which("rustup"):
+                subprocess.run(["rustup", "default", "stable"], capture_output=True)
+        refresh_path()
+        (ui.ok if ok else ui.err)(f"{i} installed." if ok else f"{i} couldn't be installed.")
+        ok_all &= ok
+    refresh_path()
+    return ok_all
+
+
 def doctor():
     ui.rule("Windmill health check")
     cfg = config.load()

@@ -270,6 +270,17 @@
     <div id="repos-list" class="repos-list"></div>
   </div>
 </div>
+<div id="setup-modal" class="modal hidden" role="dialog" aria-label="Set up Windmill">
+  <div class="modal-card">
+    <h2 id="setup-title">Finish setting up Windmill</h2>
+    <p class="muted small" id="setup-intro"></p>
+    <div id="setup-list" class="setup-list"></div>
+    <div id="setup-progress" class="row hidden"><div class="spinner"></div><div><b>Installing…</b><div class="muted small" id="setup-step"></div></div></div>
+    <p class="muted small" id="setup-note"></p>
+    <div class="row right" id="setup-actions"><button class="ghost" id="setup-later">Not now</button>
+      <button class="ghost hidden" id="setup-model">Choose an AI model</button><button class="primary" id="setup-install">Install</button></div>
+  </div>
+</div>
 <div id="jobs" class="jobs hidden" aria-live="polite"></div>
 <div id="updating" class="modal hidden" role="alertdialog" aria-label="Updating">
   <div class="modal-card row"><div class="spinner"></div><div><b>Updating Windmill</b><div class="muted small" id="updating-text"></div></div></div>

@@ -41,6 +41,7 @@ COMMANDS = [
     ("dev", "setup | publish <git-url>", "make this folder the release source (asks Major/Minor/Fix per commit)"),
     ("release", "[major|minor|fix]", "release manually (normally automatic after each commit)"),
     ("setup", "[--update-llama]", "install / repair everything (run this first)"),
+    ("install", "llama git rust buildtools", "install what Windmill needs, silently (used by the app)"),
     ("doctor", "", "health check"),
     ("fix", "", "find and repair everything automatically (llama.cpp, moved models...)"),
 ]
@@ -406,6 +407,9 @@ def dispatch(argv):
         if not args:
             return ui.warn('Usage: windmill best "what to build" [-n 4]')
         server.ensure() and script("best_of_n.py", args)
+    elif cmd == "install":
+        from .setup import install_components
+        sys.exit(0 if install_components(args or ["llama", "git"]) else 1)
     elif cmd == "_childtest":  # release test: a program started like the build step must be able to print
         r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import wm.ui; "
                             "print('child ok', flush=True)", str(config.KIT)])

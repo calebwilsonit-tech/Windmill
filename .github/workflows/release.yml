@@ -68,6 +68,11 @@ jobs:
           }
           Stop-Process $p.Id -ErrorAction SilentlyContinue
           python windmill.py doctor
+          # First-start setup, for real: the app's "Install" button runs this (silently) - it must get a working llama.cpp.
+          python windmill.py install llama
+          if ($LASTEXITCODE -ne 0) { throw "windmill install llama failed on a clean Windows machine" }
+          python -c "import sys; sys.path.insert(0, '.'); from wm import config, heal; b = config.load().get('llama_server'); print('llama.cpp:', b, heal.probe(b)); sys.exit(0 if b and heal.probe(b)[0] == 'ok' else 1)"
+          if ($LASTEXITCODE -ne 0) { throw "the installed llama.cpp doesn't run" }
       - name: Attach to the GitHub release
         shell: pwsh
         env:

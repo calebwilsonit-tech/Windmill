@@ -202,15 +202,40 @@ def pick_assets(assets, hw):
     return [first("ubuntu", "vulkan", "x64") if hw.get("vram_gb") else first("ubuntu", "x64", exclude=("vulkan",))]
 
 
+def _releases():
+    """Recent llama.cpp releases as [{tag_name, assets: [{name, browser_download_url}]}], newest first.
+    Uses GitHub's API; if that refuses (it allows ~60 requests/hour per network), reads the normal releases page."""
+    try:
+        req = urllib.request.Request("https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=6",
+                                     headers={"Accept": "application/vnd.github+json", "User-Agent": "windmill"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            rels = json.loads(r.read())
+        if rels:
+            return rels
+    except Exception:  # noqa: BLE001 - fall back to the web page
+        pass
+    req = urllib.request.Request("https://github.com/ggml-org/llama.cpp/releases/latest", headers={"User-Agent": "windmill"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        tag = r.geturl().rstrip("/").split("/")[-1]
+    req = urllib.request.Request(f"https://github.com/ggml-org/llama.cpp/releases/expanded_assets/{tag}",
+                                 headers={"User-Agent": "windmill"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        page = r.read().decode("utf-8", errors="replace")
+    names = dict.fromkeys(re.findall(rf'href="/ggml-org/llama\.cpp/releases/download/{re.escape(tag)}/([^"]+)"', page))
+    return [{"tag_name": tag, "assets": [{"name": n, "browser_download_url":
+                                          f"https://github.com/ggml-org/llama.cpp/releases/download/{tag}/{n}"} for n in names]}]
+
+
 def install_llamacpp(hw=None):
     hw = hw or models.hardware()
     ui.info("Looking up the latest llama.cpp release...")
-    req = urllib.request.Request("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest",
-                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "windmill"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        rel = json.loads(r.read())
-    chosen = [n for n in pick_assets(rel["assets"], hw) if n]
-    if not chosen:
+    rel, chosen = None, []
+    for r in _releases():  # the newest release whose files for this PC are uploaded (new ones fill in over minutes)
+        chosen = [n for n in pick_assets(r.get("assets") or [], hw) if n]
+        if chosen:
+            rel = r
+            break
+    if not rel:
         ui.err("Couldn't find a llama.cpp build for this computer. Download it manually from "
                "github.com/ggml-org/llama.cpp/releases into the windmill\\llama.cpp folder.")
         return None

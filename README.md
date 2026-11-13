@@ -96,6 +96,12 @@ Windmill has a desktop app with everything the command line has, laid out like C
   **menus turned into buttons**. The design picker's colour swatches show as real colours.
 - **AI models**, **Plugins**, **Skills**, **Settings** and **Updates** screens.
 
+**First start:** the app quietly checks what Windmill needs: the AI engine (llama.cpp, the version for your graphics
+card), Git, and for Rust projects Rust and Microsoft's C++ build tools. If anything is missing, one popup lists it with
+**Install**. Everything installs in the background with progress in the popup, with no terminal windows (Windows
+may ask for permission for some installers). Then it offers **Choose an AI model**. The same works from a terminal
+with `windmill install llama git rust buildtools`.
+
 **Installing it:**
 - **New PC:** download **`WindmillSetup.exe`** from the latest release on GitHub and run it. It installs Git
   and Python if needed, downloads Windmill, and creates the app with Desktop and Start-menu shortcuts.
