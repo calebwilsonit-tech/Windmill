@@ -48,7 +48,7 @@ jobs:
         run: |
           python windmill.py app --install
           if (!(Test-Path bin\Windmill.exe)) { throw "app --install did not produce bin\Windmill.exe" }
-          $p = Start-Process python -ArgumentList "windmill.py app --serve --port 18555 --token t" -PassThru -WindowStyle Hidden
+          $p = Start-Process pythonw -ArgumentList "windmill.py app --serve --port 18555 --token t" -PassThru -WindowStyle Hidden
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) { Start-Sleep 1; try { $r = Invoke-WebRequest http://127.0.0.1:18555/health -UseBasicParsing; $ok = $r.StatusCode -eq 200; $r.Content } catch {} }
           Stop-Process $p.Id -ErrorAction SilentlyContinue

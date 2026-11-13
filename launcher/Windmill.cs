@@ -43,7 +43,8 @@ static class WindmillApp
             string url = "http://127.0.0.1:" + port + "/";
             if (!WaitHealthy(url + "health", 45))
             {
-                Fail("Windmill's engine didn't start. Open a terminal and run:  windmill doctor");
+                Fail("Windmill's engine didn't start.\n\nDetails are in:\n" + Path.Combine(home, @"logs\app.log") +
+                     "\n\nOr open a terminal and run:  windmill app");
                 return 4;
             }
             OpenWindow(url + "?token=" + token, home);

@@ -10,6 +10,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import os  # noqa: E402
 import subprocess  # noqa: E402
 
+# Started without a console (pythonw, i.e. the desktop app): there is no stdout/stderr, and the first print
+# would crash. Send everything to a log instead, and keep the programs we start from flashing console windows.
+if sys.stdout is None or sys.stderr is None:
+    _logdir = Path.home() / ".windmill" / "logs"
+    _logdir.mkdir(parents=True, exist_ok=True)
+    _log = open(_logdir / "app.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+    sys.stdout = sys.stdout or _log
+    sys.stderr = sys.stderr or _log
+    if os.name == "nt":
+        _popen_init = subprocess.Popen.__init__
+
+        def _hidden(self, *a, **kw):
+            if not kw.get("creationflags"):
+                kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+            _popen_init(self, *a, **kw)
+        subprocess.Popen.__init__ = _hidden
+
 # Fresh PCs often have no git identity, which makes every checkpoint commit fail silently.
 # Only fill it in when the user hasn't set one.
 try:
