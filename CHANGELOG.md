@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.4 - 2026-11-13 (fix)
+- fix: desktop app engine crashed at start under pythonw (no console); now logs to ~/.windmill/logs/app.log and hides helper windows
+- (released automatically from the commit messages)
+
 ## 1.2.3 - 2026-11-13 (fix)
 - fix: the windmill command repairs itself on Windows (no more 'select an app' box); doctor checks it
 - (released automatically from the commit messages)
