@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3 - 2026-11-13 (fix)
+- fix: the windmill command repairs itself on Windows (no more 'select an app' box); doctor checks it
+- (released automatically from the commit messages)
+
 ## 1.2.2 - 2026-11-13 (fix)
 - fix: desktop app setup retries, shows progress and logs failures; doctor shows app status
 - (released automatically from the commit messages)
