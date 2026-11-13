@@ -34,6 +34,7 @@ DEFAULTS = {
     "last_library_refresh": 0,
     "auto_fix": True,
     "app_setup_done": False,
+    "web_access": True,          # the AI may search the web and open links (web_search / fetch_url)
     "recent_projects": [],              # folders opened in the app, newest first            # find/repair/install llama.cpp and re-find moved models automatically
 }
 

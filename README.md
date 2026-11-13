@@ -81,6 +81,9 @@ Windmill has a desktop app with everything the command line has, laid out like C
 - **Code library**: search what Windmill learns from (with the code shown), see what's in it, and add sources,
   either a GitHub repo or a folder of your own code. Windmill only pulls the few snippets that match each task,
   so a big library costs almost nothing in the AI's memory.
+- **Web access**: the AI can **search the web** and **open pages** (as clean text, in small parts, so it costs
+  few tokens). Links you put in a message are opened before the AI starts, so it always reads them. It shows in
+  the chat as 🔍 / 🌐 steps. Turn it off in Settings (`web_access`) to keep everything offline.
 - **Everything runs in the background.** Buttons like *New project*, *Build* or *Get a model* start the work
   and show it in a small tray in the corner. When Windmill needs an answer, a dialog pops up with buttons.
   **Details** shows the full command output if you want it.

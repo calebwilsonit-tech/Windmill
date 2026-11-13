@@ -1,6 +1,7 @@
 """The Windmill agent: a Claude-Code-style loop (think -> use tools -> check) with the watchdog built in."""
 import datetime
 import json
+import re
 import os
 import platform
 import sys
@@ -21,8 +22,10 @@ ENVIRONMENT: {os} | shell for the run tool: {shell} | project folder: {root} | t
 HOW YOU WORK
 1. Orient cheaply: project_map first. Then read only what you need (find_code / read_file with line ranges).
    Never guess what a file contains.
-2. Unfamiliar library, API or pattern? Call references(topic) BEFORE writing code. Dependency signatures it
-   returns are for the exact versions installed and override your memory.
+2. Links in the user's message: open EVERY one with fetch_url first and use what's there (that's why they gave
+   them). Unfamiliar library, API or pattern? Call references(topic) BEFORE writing code. Not in the library,
+   or needs to be current (versions, an error message, a service's docs)? web_search, then fetch_url the best hit.
+   Dependency signatures from references are for the exact versions installed and override your memory.
 3. For anything non-trivial, write a short numbered plan in your reply, then execute it one step at a time.
 4. Make changes with edit_file (exact snippets) or write_file (new files). Write complete, working code.
 5. After changes, call check. You are NOT done until check passes. Fix causes, not symptoms.
@@ -241,9 +244,26 @@ class Agent:
         self.session.replace_all(self.messages[1:])
 
     # ---------------------------------------------------------- the loop
+    def open_links(self, text):
+        """Links in the user's message are opened up front and handed to the model, so it can't ignore them."""
+        urls = list(dict.fromkeys(u.rstrip(").,;'\"]>") for u in re.findall(r"(?:https?://|www\.)[^\s<>\"']+", text)))[:4]
+        if not urls or not self.cfg.get("web_access", True):
+            return ""
+        from . import web
+        parts = []
+        for u in urls:
+            self.p.tool("fetch_url", {"url": u})
+            page = web.fetch_text(u)
+            self.p.result("fetch_url", page)
+            if len(page) > 4500:
+                page = page[:4500] + "\n(... cut - fetch_url(url, part=2) for more)"
+            parts.append(page)
+        return ("\n\n[Windmill already opened the links in this message - here is what they contain. Use it.]\n\n"
+                + "\n\n---\n\n".join(parts))
+
     def send(self, text):
         """Handle one user message until the model is done (or stuck). Returns final text."""
-        self.add({"role": "user", "content": text})
+        self.add({"role": "user", "content": text + self.open_links(text)})
         wd = Watchdog(self.root, self.llm, self.tools, self.interactive, log=self.p.note)
         self.tools.changed = set()
         steps, critic_rounds, gated_since_change = 0, 0, False

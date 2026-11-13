@@ -552,6 +552,7 @@ SETTING_HELP = {
     "permission": "auto: the AI runs commands itself (risky ones ask) | ask: confirm every command",
     "show_thinking": "Show the model's thinking while it works",
     "auto_fix": "Find and repair llama.cpp / moved models automatically",
+    "web_access": "Let the AI search the web and open links (turn off to keep everything offline)",
     "library_refresh_days": "Grow the reference library every N days (0 = never)",
     "max_steps": "Actions per message before Windmill checks in with you",
     "port": "Port the AI model server listens on",

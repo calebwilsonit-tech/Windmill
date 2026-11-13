@@ -106,6 +106,7 @@ function md(src) {
 
 // ---------------------------------------------------------------- chat
 const TOOL_LABEL = {
+  web_search: a => `🔍 search the web: ${a.query || ""}`, fetch_url: a => `🌐 open ${a.url || ""}`,
   read_file: a => `→ read ${a.path || ""}`, write_file: a => `+ write ${a.path || ""}`, edit_file: a => `✎ edit ${a.path || ""}`,
   list_files: a => `▤ list ${a.path || "."}`, search: a => `⌕ search /${a.pattern || ""}/`, run: a => `▶ ${a.command || ""}`,
   project_map: () => "◇ project map", find_code: a => `⌕ find ${a.name || ""}`, references: a => `◇ library: ${a.topic || ""}`,
@@ -192,7 +193,7 @@ function activity(text) {  // "what is it doing right now" bar above the input
   bar.classList.remove("hidden");
   $("#activity-text").textContent = text;
 }
-const PHASE = { run: a => `Running: ${a.command || ""}`, check: () => "Checking the project (build, tests, sloppy-code guard)…",
+const PHASE = { web_search: a => `Searching the web for "${a.query || ""}"`, fetch_url: a => `Reading ${a.url || ""}`, run: a => `Running: ${a.command || ""}`, check: () => "Checking the project (build, tests, sloppy-code guard)…",
   edit_file: a => `Editing ${a.path}`, write_file: a => `Writing ${a.path}`, read_file: a => `Reading ${a.path}`,
   search: a => `Searching for /${a.pattern}/`, references: a => `Looking up "${a.topic}" in the library`, project_map: () => "Reading the project map",
   find_code: a => `Finding ${a.name}`, design_brief: () => "Reading the design brief", phone: a => `Phone: ${a.action}`, use_skill: a => `Loading skill ${a.name}` };
@@ -774,7 +775,7 @@ async function loadSkills() {
 }
 
 // ---------------------------------------------------------------- settings
-const SETTING_KEYS = ["auto_update", "permission", "show_thinking", "auto_fix", "ctx", "max_steps", "library_refresh_days", "cache_type", "port"];
+const SETTING_KEYS = ["auto_update", "permission", "web_access", "show_thinking", "auto_fix", "ctx", "max_steps", "library_refresh_days", "cache_type", "port"];
 const CHOICES = { auto_update: ["auto", "ask", "off"], permission: ["auto", "ask"], cache_type: ["q8_0", "f16", "q4_0"] };
 async function loadSettings() {
   const { values, help } = await api("/api/settings");

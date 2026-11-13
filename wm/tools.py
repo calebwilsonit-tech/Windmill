@@ -50,6 +50,12 @@ SCHEMAS = [
     ("use_skill", "Load one of the user's skills (instructions for how they want something done). See SKILLS in "
      "your instructions for what exists. Optional file loads an extra file from the skill.",
      {"name": "string", "file": "string?"}),
+    ("web_search", "Search the internet. Returns the top results (title, link, one-line summary). Use it for "
+     "anything current or outside the library: latest library versions, error messages, docs, examples.",
+     {"query": "string"}),
+    ("fetch_url", "Open a web page and read it as clean text (headings, lists, code; no menus or scripts). Long "
+     "pages come in parts: part=2, 3... ALWAYS open links the user gives you before doing anything else.",
+     {"url": "string", "part": "integer?"}),
     ("ask_user", "Ask the user a plain-language question about WHAT they want (never about how to code it). "
      "Only when you genuinely can't decide yourself.", {"question": "string"}),
 ]
@@ -91,7 +97,10 @@ class Tools:
         return Path(p).resolve().relative_to(self.root).as_posix()
 
     def specs(self):
-        return tool_specs() + (self.plugins.specs() if self.plugins else [])
+        specs = tool_specs()
+        if not config.load().get("web_access", True):
+            specs = [s for s in specs if s["function"]["name"] not in ("web_search", "fetch_url")]
+        return specs + (self.plugins.specs() if self.plugins else [])
 
     def call(self, name, args):
         if name.startswith("mcp__") and self.plugins and name in self.plugins.tools:
@@ -304,6 +313,18 @@ class Tools:
                 return "\n\n".join(out)
         simple = re.escape(name.split("::")[-1])
         return self.t_search(rf"(fn|def|function|class|struct|enum|trait|interface|type|const|let|var)\s+{simple}\b")
+
+    def t_web_search(self, query):
+        if not config.load().get("web_access", True):
+            return "Web access is turned off in Settings (web_access)."
+        from . import web
+        return web.search_text(query)
+
+    def t_fetch_url(self, url, part=1):
+        if not config.load().get("web_access", True):
+            return "Web access is turned off in Settings (web_access)."
+        from . import web
+        return web.fetch_text(url, part)
 
     def t_references(self, topic):
         try:
