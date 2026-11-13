@@ -26,13 +26,13 @@ subscription, no cloud, your code never leaves your machine.
 
 **Windows:** in PowerShell:
 ```
-git clone https://github.com/calebwilsonit-tech/windmill C:\windmill
+git clone https://github.com/calebwilsonit-tech/Windmill C:\windmill
 powershell -ExecutionPolicy Bypass -File C:\windmill\install.ps1
 ```
 (No Git yet? Download the ZIP from the GitHub page, unzip it to `C:\windmill`, right-click
 **`install.ps1`** and choose **Run with PowerShell**. Auto-updates work either way.)
 
-**Mac / Linux:** `git clone https://github.com/calebwilsonit-tech/windmill ~/windmill && bash ~/windmill/install.sh`
+**Mac / Linux:** `git clone https://github.com/calebwilsonit-tech/Windmill ~/windmill && bash ~/windmill/install.sh`
 
 The installer:
 1. Installs Python and Git if they're missing (on Mac/Linux it tells you what to install).
