@@ -1,0 +1,7 @@
+models/*
+!models/.keep
+llama.cpp/
+corpus/
+android/
+__pycache__/
+*.pyc

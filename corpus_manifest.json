@@ -1,0 +1,776 @@
+{
+ "_about": "Windmill reference library. Licences are VERIFIED from each repo's files when downloaded; 'expect' is a hint. 'paths' = only those folders of huge repos are downloaded. Set 'ref' to a tag to pin a version (e.g. the bevy you use). Add your own: windmill library add <git-url-or-folder> --cat mine",
+ "repos": [
+  {
+   "name": "bevy",
+   "url": "https://github.com/bevyengine/bevy",
+   "cats": [
+    "game",
+    "mobile",
+    "graphics",
+    "ecs",
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "bevy_new_2d",
+   "url": "https://github.com/TheBevyFlock/bevy_new_2d",
+   "cats": [
+    "game",
+    "template"
+   ],
+   "expect": "MIT OR Apache-2.0 OR CC0"
+  },
+  {
+   "name": "bevy_ecs_tilemap",
+   "url": "https://github.com/StarArawn/bevy_ecs_tilemap",
+   "cats": [
+    "game"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "bevy_ecs_ldtk",
+   "url": "https://github.com/Trouv/bevy_ecs_ldtk",
+   "cats": [
+    "game"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "leafwing-input-manager",
+   "url": "https://github.com/Leafwing-Studios/leafwing-input-manager",
+   "cats": [
+    "game"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "bevy_hanabi",
+   "url": "https://github.com/djeedai/bevy_hanabi",
+   "cats": [
+    "game",
+    "graphics"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "bevy-inspector-egui",
+   "url": "https://github.com/jakobhellermann/bevy-inspector-egui",
+   "cats": [
+    "game",
+    "gui"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "macroquad",
+   "url": "https://github.com/not-fl3/macroquad",
+   "cats": [
+    "game",
+    "mobile",
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "fyrox",
+   "url": "https://github.com/FyroxEngine/Fyrox",
+   "cats": [
+    "game",
+    "graphics"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "rapier",
+   "url": "https://github.com/dimforge/rapier",
+   "cats": [
+    "game",
+    "physics"
+   ],
+   "expect": "Apache-2.0"
+  },
+  {
+   "name": "veloren",
+   "url": "https://github.com/veloren/veloren",
+   "cats": [
+    "game",
+    "rpg"
+   ],
+   "expect": "GPL-3.0",
+   "copyleft": true,
+   "note": "Full open-world RPG (inventories, items, crafting, combat, networking). GPL: only indexed with --include-copyleft. Study the design; don't paste its code into closed-source projects."
+  },
+  {
+   "name": "wgpu",
+   "url": "https://github.com/gfx-rs/wgpu",
+   "cats": [
+    "graphics"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "winit",
+   "url": "https://github.com/rust-windowing/winit",
+   "cats": [
+    "graphics",
+    "mobile",
+    "android"
+   ],
+   "expect": "Apache-2.0"
+  },
+  {
+   "name": "android-activity",
+   "url": "https://github.com/rust-mobile/android-activity",
+   "cats": [
+    "mobile",
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "tauri",
+   "url": "https://github.com/tauri-apps/tauri",
+   "cats": [
+    "mobile",
+    "gui",
+    "web-frontend",
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "dioxus",
+   "url": "https://github.com/DioxusLabs/dioxus",
+   "cats": [
+    "web-frontend",
+    "mobile",
+    "gui",
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "egui",
+   "url": "https://github.com/emilk/egui",
+   "cats": [
+    "gui",
+    "game",
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "leptos",
+   "url": "https://github.com/leptos-rs/leptos",
+   "cats": [
+    "web-frontend",
+    "web-backend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "yew",
+   "url": "https://github.com/yewstack/yew",
+   "cats": [
+    "web-frontend"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "axum",
+   "url": "https://github.com/tokio-rs/axum",
+   "cats": [
+    "web-backend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "actix-examples",
+   "url": "https://github.com/actix/examples",
+   "cats": [
+    "web-backend"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "tonic",
+   "url": "https://github.com/hyperium/tonic",
+   "cats": [
+    "web-backend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "reqwest",
+   "url": "https://github.com/seanmonstar/reqwest",
+   "cats": [
+    "web-backend"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "sqlx",
+   "url": "https://github.com/launchbadge/sqlx",
+   "cats": [
+    "db",
+    "web-backend"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "sea-orm",
+   "url": "https://github.com/SeaQL/sea-orm",
+   "cats": [
+    "db",
+    "web-backend"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "diesel",
+   "url": "https://github.com/diesel-rs/diesel",
+   "cats": [
+    "db"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "tokio",
+   "url": "https://github.com/tokio-rs/tokio",
+   "cats": [
+    "async"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "tracing",
+   "url": "https://github.com/tokio-rs/tracing",
+   "cats": [
+    "async"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "serde",
+   "url": "https://github.com/serde-rs/serde",
+   "cats": [
+    "core"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "clap",
+   "url": "https://github.com/clap-rs/clap",
+   "cats": [
+    "cli"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "ratatui",
+   "url": "https://github.com/ratatui/ratatui",
+   "cats": [
+    "cli",
+    "gui"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "rust-book",
+   "url": "https://github.com/rust-lang/book",
+   "cats": [
+    "learning"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "rust-by-example",
+   "url": "https://github.com/rust-lang/rust-by-example",
+   "cats": [
+    "learning"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "rust-cookbook",
+   "url": "https://github.com/rust-lang-nursery/rust-cookbook",
+   "cats": [
+    "learning"
+   ],
+   "expect": "CC0-1.0"
+  },
+  {
+   "name": "async-book",
+   "url": "https://github.com/rust-lang/async-book",
+   "cats": [
+    "learning",
+    "async"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "shadcn-ui",
+   "url": "https://github.com/shadcn-ui/ui",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "apps/www/content",
+    "apps/v4/content",
+    "apps/v4/registry",
+    "apps/www/registry"
+   ]
+  },
+  {
+   "name": "radix-primitives",
+   "url": "https://github.com/radix-ui/primitives",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "headlessui",
+   "url": "https://github.com/tailwindlabs/headlessui",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "govuk-frontend",
+   "url": "https://github.com/alphagov/govuk-frontend",
+   "cats": [
+    "ui-design",
+    "web-frontend",
+    "accessibility"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "packages/govuk-frontend/src"
+   ]
+  },
+  {
+   "name": "govuk-design-system",
+   "url": "https://github.com/alphagov/govuk-design-system",
+   "cats": [
+    "ui-design",
+    "accessibility"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "src"
+   ]
+  },
+  {
+   "name": "primer-react",
+   "url": "https://github.com/primer/react",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "packages/react/src",
+    "contributor-docs"
+   ]
+  },
+  {
+   "name": "carbon",
+   "url": "https://github.com/carbon-design-system/carbon",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "Apache-2.0",
+   "paths": [
+    "packages/react/src/components",
+    "packages/styles/scss",
+    "docs"
+   ]
+  },
+  {
+   "name": "material-web",
+   "url": "https://github.com/material-components/material-web",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "Apache-2.0"
+  },
+  {
+   "name": "chakra-ui",
+   "url": "https://github.com/chakra-ui/chakra-ui",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "packages/react/src",
+    "apps/www/content"
+   ]
+  },
+  {
+   "name": "mantine",
+   "url": "https://github.com/mantinedev/mantine",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "packages/@mantine/core/src",
+    "apps/mantine.dev/src/pages"
+   ]
+  },
+  {
+   "name": "daisyui",
+   "url": "https://github.com/saadeghi/daisyui",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "open-props",
+   "url": "https://github.com/argyleink/open-props",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "tailwindcss",
+   "url": "https://github.com/tailwindlabs/tailwindcss",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "packages/tailwindcss/src"
+   ]
+  },
+  {
+   "name": "excalidraw",
+   "url": "https://github.com/excalidraw/excalidraw",
+   "cats": [
+    "ui-design",
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "packages/excalidraw/components"
+   ]
+  },
+  {
+   "name": "iced",
+   "url": "https://github.com/iced-rs/iced",
+   "cats": [
+    "gui",
+    "ui-design"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "eframe-template",
+   "url": "https://github.com/emilk/eframe_template",
+   "cats": [
+    "gui",
+    "template"
+   ],
+   "expect": "MIT OR Apache-2.0"
+  },
+  {
+   "name": "nextjs-examples",
+   "url": "https://github.com/vercel/next.js",
+   "cats": [
+    "web-frontend",
+    "web-backend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "examples"
+   ]
+  },
+  {
+   "name": "astro-examples",
+   "url": "https://github.com/withastro/astro",
+   "cats": [
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "examples"
+   ]
+  },
+  {
+   "name": "svelte",
+   "url": "https://github.com/sveltejs/svelte",
+   "cats": [
+    "web-frontend"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "documentation",
+    "packages/svelte/src"
+   ]
+  },
+  {
+   "name": "htmx",
+   "url": "https://github.com/bigskysoftware/htmx",
+   "cats": [
+    "web-frontend"
+   ],
+   "expect": "0BSD",
+   "paths": [
+    "src",
+    "www/content"
+   ]
+  },
+  {
+   "name": "threejs",
+   "url": "https://github.com/mrdoob/three.js",
+   "cats": [
+    "graphics",
+    "web-frontend",
+    "game"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "examples/jsm",
+    "src",
+    "manual/en"
+   ]
+  },
+  {
+   "name": "react-three-fiber",
+   "url": "https://github.com/pmndrs/react-three-fiber",
+   "cats": [
+    "graphics",
+    "web-frontend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "fastapi",
+   "url": "https://github.com/fastapi/fastapi",
+   "cats": [
+    "web-backend",
+    "python"
+   ],
+   "expect": "MIT",
+   "paths": [
+    "docs_src",
+    "fastapi",
+    "docs/en/docs/tutorial"
+   ]
+  },
+  {
+   "name": "flask",
+   "url": "https://github.com/pallets/flask",
+   "cats": [
+    "web-backend",
+    "python"
+   ],
+   "expect": "BSD-3-Clause",
+   "paths": [
+    "src",
+    "examples",
+    "docs"
+   ]
+  },
+  {
+   "name": "compose-samples",
+   "url": "https://github.com/android/compose-samples",
+   "cats": [
+    "mobile",
+    "ui-design",
+    "android"
+   ],
+   "expect": "Apache-2.0"
+  },
+  {
+   "name": "flutter-samples",
+   "url": "https://github.com/flutter/samples",
+   "cats": [
+    "mobile",
+    "ui-design",
+    "android"
+   ],
+   "expect": "BSD-3-Clause"
+  },
+  {
+   "name": "expo-examples",
+   "url": "https://github.com/expo/examples",
+   "cats": [
+    "mobile",
+    "web-frontend"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "godot-demos",
+   "url": "https://github.com/godotengine/godot-demo-projects",
+   "cats": [
+    "game"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "algorithms-rust",
+   "url": "https://github.com/TheAlgorithms/Rust",
+   "cats": [
+    "algorithms"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "algorithms-python",
+   "url": "https://github.com/TheAlgorithms/Python",
+   "cats": [
+    "algorithms",
+    "python"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "algorithms-ts",
+   "url": "https://github.com/TheAlgorithms/TypeScript",
+   "cats": [
+    "algorithms"
+   ],
+   "expect": "MIT"
+  },
+  {
+   "name": "mdn",
+   "url": "https://github.com/mdn/content",
+   "cats": [
+    "learning",
+    "web-frontend",
+    "accessibility"
+   ],
+   "expect": "CC-BY-SA-2.5",
+   "paths": [
+    "files/en-us/web/css",
+    "files/en-us/web/html",
+    "files/en-us/web/javascript/guide",
+    "files/en-us/web/accessibility",
+    "files/en-us/web/api/canvas_api",
+    "files/en-us/web/progressive_web_apps"
+   ],
+   "copyleft": true,
+   "note": "Docs are CC-BY-SA (share-alike). Opt in with --include-copyleft; great reference, but don't paste its prose."
+  },
+  {
+   "name": "ndk-rs",
+   "url": "https://github.com/rust-mobile/ndk",
+   "cats": [
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "note": "Rust bindings to the Android NDK (ndk + ndk-sys crates)"
+  },
+  {
+   "name": "cargo-ndk",
+   "url": "https://github.com/bbqsrc/cargo-ndk",
+   "cats": [
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "note": "the tool Windmill uses to build Rust for Android"
+  },
+  {
+   "name": "xbuild",
+   "url": "https://github.com/rust-mobile/xbuild",
+   "cats": [
+    "android",
+    "mobile"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "note": "alternative cross-platform Rust app packager"
+  },
+  {
+   "name": "jni-rs",
+   "url": "https://github.com/jni-rs/jni-rs",
+   "cats": [
+    "android"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "note": "calling Java/Android APIs from Rust (and back)"
+  },
+  {
+   "name": "cargo-quad-apk",
+   "url": "https://github.com/not-fl3/cargo-quad-apk",
+   "cats": [
+    "android",
+    "game"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "note": "macroquad's APK builder"
+  },
+  {
+   "name": "android-ndk-samples",
+   "url": "https://github.com/android/ndk-samples",
+   "cats": [
+    "android"
+   ],
+   "expect": "Apache-2.0",
+   "note": "Google's official native (NDK) Android samples"
+  },
+  {
+   "name": "nowinandroid",
+   "url": "https://github.com/android/nowinandroid",
+   "cats": [
+    "android",
+    "ui-design",
+    "mobile"
+   ],
+   "expect": "Apache-2.0",
+   "note": "Google's reference for a fully-featured, well-designed Android app"
+  },
+  {
+   "name": "android-platform-samples",
+   "url": "https://github.com/android/platform-samples",
+   "cats": [
+    "android",
+    "mobile"
+   ],
+   "expect": "Apache-2.0",
+   "note": "Google samples for Android platform APIs (permissions, notifications, camera...)"
+  },
+  {
+   "name": "android-architecture-samples",
+   "url": "https://github.com/android/architecture-samples",
+   "cats": [
+    "android",
+    "mobile"
+   ],
+   "expect": "Apache-2.0",
+   "note": "Google's app-architecture reference"
+  },
+  {
+   "name": "material-components-android",
+   "url": "https://github.com/material-components/material-components-android",
+   "cats": [
+    "android",
+    "ui-design"
+   ],
+   "expect": "Apache-2.0",
+   "note": "Material Design guidance for Android components",
+   "paths": [
+    "docs"
+   ]
+  }
+ ]
+}

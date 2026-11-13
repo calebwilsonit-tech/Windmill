@@ -1,0 +1,12 @@
+# Files Aider should never put in the repo map or chat (saves tokens)
+target/
+Cargo.lock
+.ai/graph.json
+*.snap
+*.svg
+*.png
+*.jpg
+*.min.js
+**/fixtures/**
+**/testdata/**
+**/generated/**
