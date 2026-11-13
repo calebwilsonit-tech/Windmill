@@ -66,6 +66,21 @@ Windmill has a desktop app with everything the command line has, laid out like C
   Push and pull use the same sign-in. The **GitHub connector** (Plugins) uses it too, so the AI can work
   with issues, pull requests and code search. The token stays in Windows' credential store, never in Windmill's
   files. `windmill git logout` signs out. No sign-in window? It offers to paste a token instead.
+- **Builds happen in a chat**, like watching Claude work. Click **Build** (or create a **New project**) and a chat
+  opens: the plan as a message, questions as buttons (approve the plan, pick a look with colour swatches,
+  keep going?), then every milestone and step as headings, the AI's thinking, a one-line note before each
+  action, the **code it writes**, each command's result and the reviewer's verdict. Raw program output is
+  tucked into a collapsible "Output" block. Reopen the chat any time to see the whole build again. Only a
+  short summary goes into the AI's memory of the chat, so follow-up questions stay cheap.
+- **Queue messages while it works**: type and press Enter while Windmill is busy, and your message waits above the
+  message box (✕ to remove it). It's sent as soon as Windmill is free. During a build, **＋ Add to build plan**
+  turns it into a new milestone instead.
+- **Projects** (like Claude's projects): every project folder with its chats, build progress, a build plan you
+  can tick, add to or trim, and its **instructions** (`AGENTS.md`, which the AI reads in every chat and build).
+  The sidebar shows **this project's** chats or **all chats**.
+- **Code library**: search what Windmill learns from (with the code shown), see what's in it, and add sources,
+  either a GitHub repo or a folder of your own code. Windmill only pulls the few snippets that match each task,
+  so a big library costs almost nothing in the AI's memory.
 - **Everything runs in the background.** Buttons like *New project*, *Build* or *Get a model* start the work
   and show it in a small tray in the corner. When Windmill needs an answer, a dialog pops up with buttons.
   **Details** shows the full command output if you want it.

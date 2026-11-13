@@ -35,7 +35,22 @@ AIDER = os.environ.get("AI_KIT_AIDER", "aider").split()
 MAX_DIFF_CHARS = 120_000  # ~30k tokens; larger diffs get truncated for review
 
 
+EVENTS = bool(os.environ.get("WINDMILL_EVENTS"))
+
+
+def emit(**ev):
+    """Structured event for the desktop app's chat (see wm/ui.py)."""
+    sys.stdout.write("\x1eWM" + json.dumps(ev, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
 def log(msg):
+    if EVENTS:
+        first, *rest = str(msg).split("\n")
+        emit(type="step", text=first)
+        if rest:
+            emit(type="note", text="\n".join(rest))
+        return
     print(f"\n\033[1;36m[ai-kit]\033[0m {msg}", flush=True)
 
 
@@ -43,6 +58,8 @@ STOPPED = 4  # exit code: stopped on purpose with a message for the user (not a 
 
 
 def die(msg):
+    if EVENTS:
+        emit(type="error", text=str(msg))
     print(f"\033[1;31m[ai-kit] {msg}\033[0m", file=sys.stderr, flush=True)
     sys.exit(STOPPED)
 
@@ -135,7 +152,8 @@ def run_aider(cwd, message, run_path, name, test_cmd=None, lint_cmd=None, read=(
     msg_file = run_path / f"{name}.prompt.md"
     msg_file.write_text(message, encoding="utf-8")
     if engine() != "aider":
-        log(f"windmill agent: {name}")
+        if not EVENTS:  # in the app the agent's own narration, thinking and code show instead
+            log(f"windmill agent: {name}")
         from wm.agent import run_headless
         return run_headless(cwd, message, read=read, edit=edit, name=name, run_path=run_path)
     cmd = [*AIDER, "--yes-always", "--no-check-update",

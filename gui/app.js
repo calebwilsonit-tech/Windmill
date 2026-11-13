@@ -22,14 +22,14 @@ setTheme((() => { try { return localStorage.getItem("wm-theme"); } catch { retur
 $("#theme-btn").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 
 // ---------------------------------------------------------------- views
-const TITLES = { home: "Home", console: "Commands", models: "AI models", plugins: "Plugins", skills: "Skills", settings: "Settings", updates: "Updates" };
+const TITLES = { projects: "Projects", library: "Code library", home: "Home", console: "Commands", models: "AI models", plugins: "Plugins", skills: "Skills", settings: "Settings", updates: "Updates" };
 function show(view) {
   S.view = view;
   $$(".view").forEach(v => v.classList.add("hidden"));
   $(`#view-${view}`).classList.remove("hidden");
   $$(".nav").forEach(n => n.classList.toggle("active", n.dataset.view === view));
   if (view !== "chat") { $("#view-title").textContent = TITLES[view] || "Windmill"; $$(".chat-item").forEach(c => c.classList.remove("active")); }
-  ({ models: loadModels, plugins: loadPlugins, skills: loadSkills, settings: loadSettings, updates: loadUpdates }[view] || (() => { }))();
+  ({ projects: loadProjects, library: loadLibrary, models: loadModels, plugins: loadPlugins, skills: loadSkills, settings: loadSettings, updates: loadUpdates }[view] || (() => { }))();
 }
 $$(".nav").forEach(n => n.onclick = () => show(n.dataset.view));
 
@@ -59,7 +59,7 @@ setInterval(beat, 15000); document.addEventListener("visibilitychange", beat); b
 // ---------------------------------------------------------------- chats list
 async function loadChats() {
   const q = $("#chat-search").value.trim();
-  const chats = await api("/api/chats" + (q ? `?q=${encodeURIComponent(q)}` : ""));
+  const chats = await api("/api/chats" + (q ? `?q=${encodeURIComponent(q)}` : `?here=${S.here === false ? 0 : 1}`));
   if (!Array.isArray(chats)) return;
   const list = $("#chat-list");
   list.innerHTML = "";
@@ -125,7 +125,10 @@ function addMsg(role, html, cls = "") {
   return d;
 }
 function addTool(name, args) {
-  const d = addMsg("tool", `<details><summary>${esc(toolLabel(name, args))} <span class="res"></span></summary><pre class="out hidden"></pre></details>`, "tool");
+  const code = name === "write_file" ? args?.content : name === "edit_file" ? args?.new : null;
+  const open = code ? " open" : "";
+  const codeHtml = code ? `<pre class="code"><code>${esc(code)}</code></pre>` : "";
+  const d = addMsg("tool", `<details${open}><summary>${esc(toolLabel(name, args))} <span class="res"></span></summary>${codeHtml}<pre class="out hidden"></pre></details>`, "tool");
   return d;
 }
 function setResult(el, name, text) {
@@ -146,8 +149,12 @@ async function openChat(id) {
   if (data.error) { toast(data.error); return; }
   $("#view-title").textContent = data.title;
   const t = $("#transcript"); t.innerHTML = "";
+  S.chatBuild = !!data.build;
+  cur = { text: null, tool: null, think: null, thought: null };
   let lastTool = null;
   for (const m of data.messages) {
+    if (m.role === "event") { handleEvent(m.ev, false); continue; }
+    cur = { text: null, tool: null, think: null, thought: null };
     if (m.role === "user") addMsg("user", esc(m.text));
     else if (m.role === "assistant") addMsg("assistant", md(m.text));
     else if (m.role === "tool") lastTool = Object.assign(addTool(m.name, m.args), { _n: m.name });
@@ -156,8 +163,9 @@ async function openChat(id) {
   }
   if (!data.messages.length) addMsg("note", `New chat in <b>${esc(data.project)}</b>. Ask for anything - a feature, a fix, a question about the code.`, "note");
   t.scrollTop = t.scrollHeight;
+  cur = { text: null, tool: null, think: null, thought: null };
   setBusy(data.busy);
-  if (data.busy) listen(0);
+  if (data.busy) listen(data.since || 0);
   loadChats();
   $("#input").focus();
 }
@@ -171,8 +179,8 @@ $("#new-chat").onclick = newChat;
 function setBusy(b) {
   S.busy = b;
   $("#stop-btn").classList.toggle("hidden", !b);
-  $("#send-btn").disabled = b;
-  $("#send-btn").textContent = b ? "Working…" : "Send";
+  $("#send-btn").textContent = b ? "Queue" : "Send";
+  renderQueue();
 }
 
 let cur = { text: null, tool: null, think: null, thought: null };
@@ -188,54 +196,121 @@ const PHASE = { run: a => `Running: ${a.command || ""}`, check: () => "Checking 
   edit_file: a => `Editing ${a.path}`, write_file: a => `Writing ${a.path}`, read_file: a => `Reading ${a.path}`,
   search: a => `Searching for /${a.pattern}/`, references: a => `Looking up "${a.topic}" in the library`, project_map: () => "Reading the project map",
   find_code: a => `Finding ${a.name}`, design_brief: () => "Reading the design brief", phone: a => `Phone: ${a.action}`, use_skill: a => `Loading skill ${a.name}` };
+function handleEvent(ev, live = true) {
+  const thinkOff = () => { if (cur.think) { cur.think.remove(); cur.think = null; } };
+  const act = t => { if (live) activity(t); };
+  if (ev.type !== "log") cur.log = null;
+  switch (ev.type) {
+    case "thinking": thinkOff(); cur.text = null; cur.thought = null; if (live) cur.think = addMsg("thinking", `<div class="spinner"></div> thinking…`, "thinking"); act("Thinking…"); break;
+    case "think":  // the model's reasoning, streamed into a collapsible block (like Claude's)
+      thinkOff();
+      if (!cur.thought) { cur.thought = addMsg("thinkblock", `<details><summary>💭 Thinking…</summary><div class="body"></div></details>`, "thinkblock"); cur.thought._raw = ""; }
+      cur.thought._raw += ev.text;
+      $(".body", cur.thought).textContent = cur.thought._raw;
+      $("summary", cur.thought).textContent = "💭 " + (cur.thought._raw.trim().split("\n").pop() || "Thinking…").slice(0, 140);
+      act("Thinking: " + cur.thought._raw.trim().split("\n").pop().slice(0, 120)); break;
+    case "text":
+      thinkOff(); act("Writing…");
+      if (!cur.text) { cur.text = addMsg("assistant", ""); cur.text._raw = ""; }
+      cur.text._raw += ev.text; cur.text.innerHTML = md(cur.text._raw);
+      if (live) $("#transcript").scrollTop = $("#transcript").scrollHeight; break;
+    case "tool": thinkOff(); cur.text = null; cur.thought = null; cur.tool = Object.assign(addTool(ev.name, ev.args), { _n: ev.name });
+      act((PHASE[ev.name] || (() => ev.name.startsWith("mcp__") ? `Using ${ev.name.split("__").slice(1).join(": ")}` : ev.name))(ev.args || {})); break;
+    case "result": setResult(cur.tool, ev.name, ev.text); break;
+    case "debugger": thinkOff(); act("Debugger: " + ev.text.split("\n")[0].slice(0, 120)); addMsg("debugger", "⚑ debugger: " + esc(ev.text.split("\n").slice(0, 4).join("\n")), "debugger"); break;
+    case "phase": thinkOff(); cur.text = null; addMsg("phase", esc(ev.text), "phase"); act(ev.text); break;
+    case "step": thinkOff(); cur.text = null; addMsg("step", esc(ev.text.replace(/^\d+ (?=[A-Z])/, "")), "step"); act(ev.text); break;
+    case "log": {  // raw program output (cargo etc.): one quiet, collapsible block
+      if (!cur.log) { cur.log = addMsg("logblock", `<details><summary>Output</summary><pre></pre></details>`, "logblock"); cur.log._n = 0; }
+      $("pre", cur.log).textContent += ev.text + "\n"; cur.log._n++;
+      $("summary", cur.log).textContent = `Output (${cur.log._n} line${cur.log._n === 1 ? "" : "s"}) · ${ev.text.slice(0, 90)}`;
+      break;
+    }
+    case "activity": act(ev.text + "…"); break;
+    case "note": addMsg("note", esc(ev.text), "note"); act(ev.text.replace(/[()]/g, "")); break;
+    case "ok": addMsg("note", "✓ " + esc(ev.text), "note ok"); break;
+    case "warn": addMsg("note", "! " + esc(ev.text), "note warn"); break;
+    case "error": thinkOff(); addMsg("note", "⚠ " + esc(ev.text), "note error"); break;
+    case "ask": thinkOff(); cur.ask = askCard(ev, live); act(live ? "Waiting for your answer" : null); break;
+    case "answered": if (cur.ask && cur.ask._qid === ev.qid) cur.ask._done(ev.text); else if (!live) addMsg("note", "→ " + esc(ev.text || "(default)"), "note"); break;
+    case "project": if (live) api("/api/project", { path: ev.path }).then(() => { refresh(); loadChats(); }); break;
+    case "final": thinkOff(); cur = { text: null, tool: null, think: null }; break;
+    case "summary": thinkOff(); cur = { text: null, tool: null, think: null }; addMsg("assistant", md(ev.text)); break;
+    case "idle": thinkOff(); activity(null); setBusy(false); if (S.es) S.es.close(); loadChats(); refresh(); sendQueued(); break;
+  }
+}
 function listen(since) {
   if (S.es) S.es.close();
   const es = S.es = new EventSource(`/api/chats/${S.chat}/events?since=${since}`);
-  es.onmessage = e => {
-    const ev = JSON.parse(e.data);
-    const thinkOff = () => { if (cur.think) { cur.think.remove(); cur.think = null; } };
-    switch (ev.type) {
-      case "thinking": thinkOff(); cur.text = null; cur.thought = null; cur.think = addMsg("thinking", `<div class="spinner"></div> thinking…`, "thinking"); activity("Thinking…"); break;
-      case "think":  // the model's reasoning, streamed into a collapsible block (like Claude's)
-        thinkOff();
-        if (!cur.thought) { cur.thought = addMsg("thinkblock", `<details><summary>💭 Thinking…</summary><div class="body"></div></details>`, "thinkblock"); cur.thought._raw = ""; }
-        cur.thought._raw += ev.text;
-        $(".body", cur.thought).textContent = cur.thought._raw;
-        $("summary", cur.thought).textContent = "💭 " + (cur.thought._raw.trim().split("\n").pop() || "Thinking…").slice(0, 140);
-        activity("Thinking: " + cur.thought._raw.trim().split("\n").pop().slice(0, 120)); break;
-      case "text":
-        thinkOff(); activity("Writing the answer…");
-        if (!cur.text) { cur.text = addMsg("assistant", ""); cur.text._raw = ""; }
-        cur.text._raw += ev.text; cur.text.innerHTML = md(cur.text._raw);
-        $("#transcript").scrollTop = $("#transcript").scrollHeight; break;
-      case "tool": thinkOff(); cur.text = null; cur.thought = null; cur.tool = Object.assign(addTool(ev.name, ev.args), { _n: ev.name });
-        activity((PHASE[ev.name] || (() => ev.name.startsWith("mcp__") ? `Using ${ev.name.split("__").slice(1).join(": ")}` : ev.name))(ev.args || {})); break;
-      case "result": setResult(cur.tool, ev.name, ev.text); break;
-      case "debugger": thinkOff(); activity("Debugger: " + ev.text.split("\n")[0].slice(0, 120)); addMsg("debugger", "⚑ debugger: " + esc(ev.text.split("\n").slice(0, 4).join("\n")), "debugger"); break;
-      case "note": addMsg("note", esc(ev.text), "note"); activity(ev.text.replace(/[()]/g, "")); break;
-      case "error": thinkOff(); addMsg("note", "⚠ " + esc(ev.text), "note error"); break;
-      case "ask": thinkOff(); askCard(ev); break;
-      case "final": thinkOff(); cur = { text: null, tool: null, think: null }; break;
-      case "idle": thinkOff(); activity(null); setBusy(false); es.close(); loadChats(); refresh(); break;
-    }
-  };
+  es.onmessage = e => handleEvent(JSON.parse(e.data), true);
 }
-function askCard(ev) {
-  const yesno = /\(yes\/no\)|\? *$/.test(ev.text) && /allow|keep going|run:|yes\/no/i.test(ev.text);
-  const d = addMsg("ask", `<div>${esc(ev.text)}</div>` + (yesno
-    ? `<div class="row"><button class="primary small" data-a="yes">Yes</button><button class="ghost small" data-a="no">No</button></div>`
-    : `<div class="row"><input placeholder="Your answer…"><button class="primary small" data-a="">Answer</button></div>`), "ask");
-  const send = async a => { await api(`/api/chats/${S.chat}/answer`, { qid: ev.qid, text: a }); d.innerHTML = `<div class="muted small">${esc(ev.text)} → <b>${esc(a || "(skipped)")}</b></div>`; };
-  $$("button", d).forEach(b => b.onclick = () => send(b.dataset.a || $("input", d).value));
+function askCard(ev, live = true) {
+  const q = ev.text.replace(/\s*\(yes\/no\)\s*$/, "");
+  let body = "";
+  if (ev.options) {
+    body = `<div class="choices">` + ev.options.map(([k, label, hint]) => {
+      const sw = (ev.swatches || {})[k];
+      const swHtml = sw ? `<span class="swatches">${sw.map(c => `<i style="background:${esc(c)}"></i>`).join("")}</span>` : "";
+      return `<button data-a="${esc(k)}" class="${label === "Cancel" ? "choice-cancel" : ""}">${swHtml}<b>${esc(label)}</b>${hint ? `<small>${esc(hint)}</small>` : ""}</button>`;
+    }).join("") + `</div>`;
+  } else if (ev.yn || /\(yes\/no\)/.test(ev.text)) {
+    body = `<div class="row"><button class="primary small" data-a="yes">Yes</button><button class="ghost small" data-a="no">No</button></div>`;
+  } else {
+    const accept = /press enter to accept/i.test(q);
+    const def = ev.default != null && ev.default !== "" ? String(ev.default) : null;
+    body = `<div class="row"><input placeholder="${accept ? "Or type what to change…" : def ? `Enter for “${esc(def)}”` : "Your answer…"}">` +
+      `<button class="primary small" data-a="__input">${accept ? "Change it" : "Send"}</button>` +
+      (accept ? `<button class="primary small" data-a="">✓ Accept the plan</button>` : def ? `<button class="ghost small" data-a="">Use “${esc(def)}”</button>` : "") + `</div>`;
+  }
+  const title = q.replace(/^Press Enter to accept, or type what to change$/i, "Does this plan look right?");
+  const d = addMsg("ask", `<div class="ask-q">${esc(title)}</div>${body}`, "ask");
+  d._qid = ev.qid;
+  d._done = a => {
+    const label = ev.options ? (ev.options.find(o => o[0] === a) || [a, a])[1] : (a || (ev.default != null ? String(ev.default) : "OK"));
+    d.innerHTML = `<div class="muted small">${esc(title)} → <b>${esc(label || "OK")}</b></div>`;
+  };
+  if (!live) { d.innerHTML = `<div class="muted small">${esc(title)}</div>`; return d; }
+  const send = async a => {
+    if (S.chatBuild && ev.qid) { const r = await api(`/api/chats/${S.chat}/answer`, { qid: ev.qid, text: a }); if (r.ok) d._done(a); return; }
+    await api(`/api/chats/${S.chat}/answer`, { qid: ev.qid, text: a }); d._done(a);
+  };
+  $$("button", d).forEach(b => b.onclick = () => send(b.dataset.a === "__input" ? $("input", d).value : b.dataset.a));
   const inp = $("input", d); if (inp) { inp.focus(); inp.onkeydown = e => { if (e.key === "Enter") send(inp.value); }; }
+  return d;
+}
+
+// ---------------------------------------------------------------- message queue (type while Windmill works)
+S.queue = {};
+function renderQueue() {
+  const box = $("#queue"), q = S.queue[S.chat] || [];
+  box.classList.toggle("hidden", !q.length);
+  box.innerHTML = q.map((t, i) => `<div class="queued"><span class="qi">${i + 1}</span><span class="qt">${esc(t)}</span>` +
+    (S.chatBuild && S.busy ? `<button class="ghost small" data-plan="${i}" title="Add it to the build plan - the build picks it up as a new milestone">＋ Add to build plan</button>` : "") +
+    `<button class="icon-btn" data-rm="${i}" title="Remove">✕</button></div>`).join("");
+  $$("[data-rm]", box).forEach(b => b.onclick = () => { q.splice(+b.dataset.rm, 1); renderQueue(); });
+  $$("[data-plan]", box).forEach(b => b.onclick = async () => {
+    const [t] = q.splice(+b.dataset.plan, 1);
+    await api("/api/roadmap", { action: "add", text: t });
+    addMsg("note", "＋ Added to the build plan: " + esc(t), "note ok"); renderQueue();
+  });
+  $("#input").placeholder = S.busy ? "Windmill is working - type to queue your next message (Enter)" : "Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)";
+}
+function sendQueued() {
+  const q = S.queue[S.chat] || [];
+  renderQueue();
+  if (q.length && !S.busy) { const t = q.shift(); renderQueue(); sendText(t); }
 }
 
 async function send() {
   const text = $("#input").value.trim();
-  if (!text || S.busy) return;
+  if (!text) return;
+  $("#input").value = ""; autosize();
+  if (S.busy) { (S.queue[S.chat] = S.queue[S.chat] || []).push(text); renderQueue(); return; }
+  sendText(text);
+}
+async function sendText(text) {
   if (!S.chat) { const r = await api("/api/chats", {}); S.chat = r.id; show("chat"); $("#transcript").innerHTML = ""; }
   addMsg("user", esc(text));
-  $("#input").value = ""; autosize();
   const r = await api(`/api/chats/${S.chat}/send`, { text });
   if (r.error) { toast(r.error); return; }
   setBusy(true);
@@ -345,8 +420,15 @@ function taskTitle(args) {
 }
 function showDetails(id) { S.consoleTask = id; const t = S.tasks[id]; $("#cmd-input").value = t ? t.args.join(" ") : ""; show("console"); renderConsole(); }
 
+async function startBuild(args, extra = {}) {
+  const r = await api("/api/build", { args, ...extra });
+  if (r.error) return toast(r.error, 8000);
+  S.chatBuild = true;
+  await openChat(r.id);
+}
 async function runTask(args, opts = {}) {
   if (args[0] === "new" && args.length === 1) return openNewProject();
+  if (args[0] === "build" && args.length === 1 && !opts.console) return startBuild(["build"]);
   const title = opts.title || taskTitle(args);
   const r = await api("/api/tasks", { args, cwd: S.state.project, title });
   if (r.error) { toast(r.error); return; }
@@ -463,10 +545,9 @@ $("#new-form").onsubmit = e => {
   if (f.extra.value.trim()) args.push("--extra", f.extra.value.trim());
   if (f.where.value.trim()) args.push("--in", f.where.value.trim());
   $("#new-modal").classList.add("hidden");
-  runTask(args, { title: "New project", onOut: t => {
-    const m = !t.switched && strip(t.text).match(/Project created at (.+)/);
-    if (m) { t.switched = true; api("/api/project", { path: m[1].trim() }).then(() => refresh()); }
-  } });
+  const idea = f.idea.value.trim();
+  startBuild(args, { title: "New: " + (idea.length > 48 ? idea.slice(0, 46) + "…" : idea), intro: idea +
+    (f.who.value.trim() ? `\n\nFor: ${f.who.value.trim()}` : "") + (f.extra.value.trim() ? `\n\nMust have: ${f.extra.value.trim()}` : "") });
 };
 
 document.addEventListener("click", e => {
@@ -771,3 +852,78 @@ async function startupUpdateCheck() {
   show("home");
   startupUpdateCheck();
 })();
+
+
+// ---------------------------------------------------------------- chats: this project / all
+$$("#chat-scope button").forEach(b => b.onclick = () => {
+  S.here = b.dataset.here === "1";
+  $$("#chat-scope button").forEach(x => x.classList.toggle("on", x === b));
+  loadChats();
+});
+
+// ---------------------------------------------------------------- projects
+async function loadProjects() {
+  $("#project-page").classList.add("hidden"); $("#projects-grid").classList.remove("hidden");
+  const r = await api("/api/projects/list");
+  $("#projects-grid").innerHTML = `<button class="proj-card new" data-task="new"><b>＋ New project</b><span>Describe an idea - Windmill plans and builds it</span></button>` +
+    (r.projects || []).map(p => `<button class="proj-card${p.current ? " current" : ""}" data-path="${esc(p.path)}">
+      <b>${esc(p.name)}</b><span class="muted small">${esc(p.kinds.join(", ") || "folder")} · ${p.chats} chat${p.chats === 1 ? "" : "s"} · ${ago(p.updated)}</span>
+      ${p.total ? `<div class="bar"><i style="width:${Math.round(100 * p.done / p.total)}%"></i></div><span class="muted small">${p.done}/${p.total} milestones built</span>` : `<span class="muted small">No build plan yet</span>`}
+      ${p.current ? `<span class="badge">current</span>` : ""}</button>`).join("");
+  $$("#projects-grid [data-path]").forEach(b => b.onclick = () => openProject(b.dataset.path));
+}
+async function openProject(path) {
+  const d = await api("/api/project/detail?path=" + encodeURIComponent(path));
+  if (d.error) return toast(d.error);
+  S.projPage = path;
+  $("#projects-grid").classList.add("hidden"); $("#project-page").classList.remove("hidden");
+  $("#view-title").textContent = d.name;
+  $("#pp2-name").textContent = d.name; $("#pp2-path").textContent = d.path;
+  $("#pp2-progress").textContent = d.total ? `${d.done}/${d.total} built` : "";
+  $("#pp2-roadmap").innerHTML = d.roadmap.map(m => `<div class="rm${m.done ? " done" : ""}"><input type="checkbox" ${m.done ? "checked" : ""} data-line="${m.line}" title="Mark built / not built">
+    <span>${esc(m.text)}</span><button class="icon-btn" data-del="${m.line}" title="Remove">✕</button></div>`).join("") || `<div class="muted small">No milestones yet - add one below, or start a new project.</div>`;
+  $$("#pp2-roadmap [data-line]").forEach(c => c.onchange = async () => { await api("/api/roadmap", { path, action: "toggle", line: +c.dataset.line }); openProject(path); });
+  $$("#pp2-roadmap [data-del]").forEach(c => c.onclick = async () => { await api("/api/roadmap", { path, action: "remove", line: +c.dataset.del }); openProject(path); });
+  $("#pp2-chats").innerHTML = d.chats.map(c => `<button class="chat-item" data-id="${c.id}"><span class="t">${esc(c.title)}</span><span class="m">${ago(c.updated)}</span></button>`).join("") || `<div class="muted small">No chats yet.</div>`;
+  $$("#pp2-chats [data-id]").forEach(b => b.onclick = async () => { await useProject(path); openChat(b.dataset.id); });
+  $("#pp2-instr").value = d.instructions; $("#pp2-instr-msg").textContent = "";
+}
+async function useProject(path) { if (S.state.project !== path) { await api("/api/project", { path }); await refresh(); loadChats(); } }
+$("#proj-back").onclick = loadProjects;
+$("#pp2-use").onclick = async () => { await useProject(S.projPage); show("home"); };
+$("#pp2-chat").onclick = async () => { await useProject(S.projPage); newChat(); };
+$("#pp2-build").onclick = async () => { await useProject(S.projPage); startBuild(["build"]); };
+const addMilestone = async () => { const t = $("#pp2-add").value.trim(); if (!t) return; await api("/api/roadmap", { path: S.projPage, action: "add", text: t }); $("#pp2-add").value = ""; openProject(S.projPage); };
+$("#pp2-add-btn").onclick = addMilestone;
+$("#pp2-add").onkeydown = e => { if (e.key === "Enter") addMilestone(); };
+$("#pp2-instr-save").onclick = async () => { await api("/api/project/instructions", { path: S.projPage, text: $("#pp2-instr").value }); $("#pp2-instr-msg").textContent = "Saved."; };
+
+// ---------------------------------------------------------------- code library
+async function loadLibrary() {
+  const r = await api("/api/library");
+  const cats = Object.entries(r.cats || {}).sort((a, b) => b[1] - a[1]);
+  $("#lib-stats").innerHTML = `<div><b>${(r.sources || []).length}</b><span>sources</span></div><div><b>${(r.chunks || 0).toLocaleString()}</b><span>code pieces</span></div><div><b>${r.mb || 0} MB</b><span>on disk</span></div>` +
+    `<div class="cats">${cats.slice(0, 14).map(([c, n]) => `<button class="chip" data-cat="${esc(c)}">${esc(c)} <span class="muted">${n}</span></button>`).join("")}</div>`;
+  $$("#lib-stats [data-cat]").forEach(b => b.onclick = () => { $("#lib-q").value = b.dataset.cat + " "; $("#lib-q").focus(); });
+  $("#lib-mine").innerHTML = (r.mine || []).map(m => `<div class="row lib-src"><b>${esc(m.name)}</b><span class="muted small" style="flex:1">${esc(m.url)} · ${m.indexed ? "in the library" : "not downloaded yet"}</span>
+    <button class="icon-btn" data-rm="${esc(m.name)}" title="Remove from the library">✕</button></div>`).join("") || `<div class="muted small">None yet - add a repo or one of your own project folders above.</div>`;
+  $$("#lib-mine [data-rm]").forEach(b => b.onclick = async () => { if (confirm(`Remove ${b.dataset.rm} from the library?`)) { await api("/api/library/remove", { name: b.dataset.rm }); loadLibrary(); } });
+  $("#lib-all").innerHTML = (r.sources || []).map(s => `<div class="lib-row"><b>${esc(s.name)}</b><span class="muted small">${s.chunks.toLocaleString()} pieces · ${esc(s.cats.join(", "))} · ${esc(s.license)}</span></div>`).join("") || `<div class="muted small">The library is empty - click "Download / update all sources" below (or run Setup).</div>`;
+}
+async function librarySearch() {
+  const q = $("#lib-q").value.trim(); if (!q) return;
+  $("#lib-results").innerHTML = `<div class="muted">Searching…</div>`;
+  const r = await api("/api/library/search?q=" + encodeURIComponent(q));
+  $("#lib-results").innerHTML = (r.results || []).map(x => `<details class="lib-hit"><summary><b>${esc(x.name || x.path.split("/").pop())}</b> <span class="muted small">${esc(x.repo)} · ${esc(x.path)}:${x.line} · ${esc(x.license)}</span></summary>
+    <pre class="code"><code>${esc(x.snippet)}</code></pre>${x.more ? `<div class="muted small">…${x.more} more lines</div>` : ""}</details>`).join("")
+    || `<div class="muted">${r.error ? esc(r.error) : "Nothing matched - try other words, or add a source below."}</div>`;
+}
+$("#lib-go").onclick = librarySearch;
+$("#lib-q").onkeydown = e => { if (e.key === "Enter") librarySearch(); };
+$("#lib-browse").onclick = async () => { const p = await browseFolder(S.state.project, "Choose a folder to add to the library"); if (p) $("#lib-add").value = p; };
+$("#lib-add-btn").onclick = () => {
+  let v = $("#lib-add").value.trim(); if (!v) return;
+  if (/^[\w.-]+\/[\w.-]+$/.test(v)) v = `https://github.com/${v}`;
+  runTask(["library", "add", v], { title: "Add to the library: " + v.split(/[\\/]/).filter(Boolean).pop(), onExit: () => { if (S.view === "library") loadLibrary(); } });
+  $("#lib-add").value = "";
+};

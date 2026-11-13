@@ -29,6 +29,9 @@ HOW YOU WORK
 6. Any UI work (web pages, app screens, game HUD/menus/inventory): call design_brief first and follow it
    exactly - its colours, fonts, spacing and signature moves. Real copy, every state, responsive, accessible.
 7. Finish with a short plain-language summary: what you built, how to see/run it, anything the user should know.
+8. The user watches you work. Before each action (or small group of actions), write ONE short sentence saying
+   what you're about to do and why - e.g. "Reading the window setup so the theme hooks in at the right place."
+   Keep it to one sentence; don't repeat code you're about to write.
 
 NON-NEGOTIABLE
 - No placeholders, stubs, TODOs, "...", "simplified version", lorem ipsum, fake data presented as real.
@@ -339,6 +342,40 @@ class Agent:
             return r["content"]
 
 
+class EventsPrinter:
+    """Agent output as structured events (thinking, text, tool calls with the code they write, results)."""
+    show_thinking, quiet = True, False
+
+    def think_start(self):
+        ui.emit(type="thinking")
+
+    def think_stop(self):
+        pass
+
+    def think(self, t):
+        ui.emit(type="think", text=t)
+
+    def text(self, t):
+        ui.emit(type="text", text=t)
+
+    def end_text(self):
+        ui.emit(type="final")
+
+    def tool(self, name, args):
+        big = {"content": 12000, "new": 6000, "old": 3000}
+        ui.emit(type="tool", name=name, args={k: (v if len(str(v)) < big.get(k, 400) else str(v)[:big.get(k, 400)] + "…")
+                                             for k, v in (args or {}).items()})
+
+    def result(self, name, out):
+        ui.emit(type="result", name=name, text=str(out)[:2000])
+
+    def debugger(self, msg):
+        ui.emit(type="debugger", text=msg.replace("[WINDMILL DEBUGGER]", "").strip()[:2000])
+
+    def note(self, msg):
+        ui.emit(type="note", text=msg)
+
+
 def run_headless(root, message, read=(), edit=(), name="task", run_path=None, critic=False, max_steps=60):
     """Used by the pipeline / best-of-N: one instruction, no user interaction. Returns 0 on success."""
     root = Path(root)
@@ -353,7 +390,7 @@ def run_headless(root, message, read=(), edit=(), name="task", run_path=None, cr
                                                                      for e in edit if Path(e).exists()))
     agent = Agent(root, interactive=False, critic=critic, max_steps=max_steps,
                   session=Session.new(root, title=f"[auto] {name}"))
-    agent.p = Printer(quiet=True)
+    agent.p = EventsPrinter() if ui.EVENTS else Printer(quiet=True)
     try:
         final = agent.send("\n".join(parts))
     except LLMError as e:
@@ -366,5 +403,6 @@ def run_headless(root, message, read=(), edit=(), name="task", run_path=None, cr
                 c += "\n" + "\n".join(f"-> {t['function']['name']}({t['function']['arguments'][:300]})" for t in m["tool_calls"])
             lines.append(f"## {m['role']}\n{c[:4000]}\n")
         (Path(run_path) / f"{name}.history.md").write_text("\n".join(lines), encoding="utf-8")
-    print(f"  {ui.dim(name + ': ' + (final or '').strip().splitlines()[0][:120] if final and final.strip() else name + ': done')}")
+    if not ui.EVENTS:
+        print(f"  {ui.dim(name + ': ' + (final or '').strip().splitlines()[0][:120] if final and final.strip() else name + ': done')}")
     return 0

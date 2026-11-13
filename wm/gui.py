@@ -149,6 +149,258 @@ class ChatRun:
         return True
 
 
+# ------------------------------------------------------------------ builds (and new projects) running in a chat
+CHATLOGS = config.HOME / "chatlogs"
+
+
+def chatlog(sid):
+    """What a build showed in its chat (thinking, code, steps...). Kept for the chat window only - the AI's memory of
+    the chat gets a short summary instead, so follow-up messages don't spend the whole build's tokens again."""
+    f = CHATLOGS / f"{sid}.jsonl"
+    if not f.exists():
+        return []
+    out = []
+    for line in f.read_text(encoding="utf-8").splitlines():
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            pass
+    return out
+
+
+class BuildRun(ChatRun):
+    """Runs `windmill build` / `windmill new ...` with structured events and streams them into the chat."""
+
+    def __init__(self, sid, project):
+        super().__init__(sid, project)
+        self.proc, self.qid, self.kind = None, None, "build"
+        self._buf = None  # streamed think/text chunks are merged before saving
+
+    def _save(self, ev):
+        if ev["type"] in ("think", "text") and self._buf and self._buf["type"] == ev["type"]:
+            self._buf["text"] += ev["text"]
+            return
+        self._flush()
+        if ev["type"] in ("think", "text"):
+            self._buf = {"type": ev["type"], "text": ev["text"]}
+            return
+        if ev["type"] in ("activity", "thinking", "idle"):
+            return
+        self._write({k: v for k, v in ev.items() if k != "n"})
+
+    def _flush(self):
+        if self._buf:
+            self._write(self._buf)
+            self._buf = None
+
+    def _write(self, ev):
+        CHATLOGS.mkdir(parents=True, exist_ok=True)
+        s = sessions.Session.load(self.sid)
+        with open(CHATLOGS / f"{self.sid}.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": len(s.messages) if s else 0, "ev": ev}, ensure_ascii=False) + "\n")
+
+    def emit(self, ev):
+        self.push(ev)
+        self._save(ev)
+
+    def start(self, args, intro):
+        if self.busy:
+            return False
+        self.busy, self.kind = True, args[0]
+        self.cancel.clear()
+        s = sessions.Session.load(self.sid)
+        s.add({"role": "user", "content": intro})
+        env = {**os.environ, "WINDMILL_EVENTS": "1", "WINDMILL_GUI": "1", "WINDMILL_NO_UPDATE": "1", "NO_COLOR": "1",
+               "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", "COLUMNS": "100"}
+        kw = {"creationflags": 0x08000000} if os.name == "nt" else {}
+        self.proc = subprocess.Popen([sys.executable, "-u", str(config.KIT / "windmill.py"), *args], cwd=self.project,
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **kw)
+        threading.Thread(target=self._read, daemon=True).start()
+        return True
+
+    def _read(self):
+        from .ui import MARK, strip_ansi
+        code = None
+        try:
+            for raw in iter(self.proc.stdout.readline, b""):
+                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line.startswith(MARK):
+                    try:
+                        ev = json.loads(line[len(MARK):])
+                    except ValueError:
+                        continue
+                    if ev.get("type") == "ask":
+                        self.qid = ev["qid"] = secrets.token_hex(4)
+                        note("Windmill", "needs your answer - click to open Windmill")
+                    if ev.get("type") == "project" and Path(ev.get("path", "")).is_dir():
+                        STATE["project"] = ev["path"]
+                        remember_project(ev["path"])
+                    self.emit(ev)
+                elif line.strip():
+                    self.emit({"type": "log", "text": strip_ansi(line)[:2000]})
+            code = self.proc.wait()
+        finally:
+            self._flush()
+            ok = code == 0
+            summary = self._summary(ok)
+            s = sessions.Session.load(self.sid)
+            if s:
+                s.add({"role": "assistant", "content": summary})
+            self.push({"type": "summary", "text": summary})
+            self.busy, self.qid = False, None
+            self.push({"type": "idle"})
+            note("Build" if self.kind == "build" else "New project", "finished" if ok else "stopped - open Windmill to see why")
+
+    def _summary(self, ok):
+        from . import project as proj
+        ms = proj.milestones(self.project if self.kind == "build" else STATE.get("project") or self.project)
+        done = sum(1 for *_, d in ms if d)
+        state = f"{done} of {len(ms)} milestones done" if ms else ""
+        return (f"Build {'finished' if ok else 'stopped'}{' - ' + state if state else ''}. (The full build log is shown "
+                "above in this chat; ask me anything about it, or what to change next.)")
+
+    def answer(self, qid, text):
+        if not self.proc or self.proc.poll() is not None or qid != self.qid:
+            return False
+        self.qid = None
+        try:
+            self.proc.stdin.write((text + "\n").encode("utf-8"))
+            self.proc.stdin.flush()
+        except OSError:
+            return False
+        self.emit({"type": "answered", "qid": qid, "text": text})
+        return True
+
+    def stop_build(self):
+        if self.proc and self.proc.poll() is None:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(self.proc.pid), "/T", "/F"], capture_output=True)
+            else:
+                self.proc.terminate()
+
+
+def start_build(args, title, intro, root=None):
+    root = str(root or project())
+    s = sessions.Session.new(root, title=title)
+    run = CHATS[s.id] = BuildRun(s.id, root)
+    run.start(args, intro)
+    return s.id
+
+
+# ------------------------------------------------------------------ projects (like Claude's projects: a folder + its chats)
+def project_card(p):
+    from . import checks
+    from . import project as proj
+    p = Path(p)
+    ms = proj.milestones(p)
+    with sessions.db() as c:
+        n, last = c.execute("SELECT count(*), max(updated) FROM sessions WHERE project=? AND n>0 "
+                            "AND title NOT LIKE '[auto]%'", (str(p),)).fetchone()
+    try:
+        kinds = checks.kinds(p)
+    except Exception:  # noqa: BLE001
+        kinds = []
+    return {"path": str(p), "name": p.name, "kinds": kinds, "done": sum(1 for *_, d in ms if d), "total": len(ms),
+            "chats": n or 0, "updated": last or p.stat().st_mtime, "current": str(p) == str(project())}
+
+
+def projects_list():
+    from . import project as proj
+    cands = [str(project())] + list(config.load().get("recent_projects", []))
+    try:
+        cands += [str(d) for d in sorted(proj.projects_home().iterdir(), key=lambda d: -d.stat().st_mtime) if d.is_dir()]
+    except OSError:
+        pass
+    seen, out = set(), []
+    for c in cands:
+        if c not in seen and Path(c).is_dir():
+            seen.add(c)
+            out.append(project_card(c))
+    return out[:40]
+
+
+def project_detail(p):
+    from . import project as proj
+    p = Path(p)
+    rules = p / "AGENTS.md"
+    roadmap = [{"line": i, "text": re.sub(r"^- \[( |x)\] ", "", l), "done": d} for i, l, d in proj.milestones(p)]
+    chats = [{"id": r["id"], "title": r["title"], "updated": r["updated"]} for r in sessions.recent(50, project=str(p))]
+    return {**project_card(p), "instructions": rules.read_text(encoding="utf-8") if rules.exists() else "",
+            "roadmap": roadmap, "chats": chats}
+
+
+def roadmap_edit(p, action, text="", line=None):
+    f = Path(p) / "ROADMAP.md"
+    lines = f.read_text(encoding="utf-8").splitlines() if f.exists() else ["# Roadmap", ""]
+    if action == "add" and text.strip():
+        for t in [x.strip(" -") for x in text.strip().splitlines() if x.strip()]:
+            lines.append(f"- [ ] {t}")
+    elif action in ("toggle", "remove") and line is not None and 0 <= int(line) < len(lines):
+        i = int(line)
+        if not re.match(r"^- \[( |x)\] ", lines[i]):
+            return False
+        if action == "remove":
+            del lines[i]
+        else:
+            lines[i] = lines[i].replace("- [ ]", "- [x]", 1) if lines[i].startswith("- [ ]") else lines[i].replace("- [x]", "- [ ]", 1)
+    else:
+        return False
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
+# ------------------------------------------------------------------ the reference library, in the app
+def _corpus():
+    if str(config.SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(config.SCRIPTS))
+    import ai_corpus
+    return ai_corpus
+
+
+def library_info():
+    ac = _corpus()
+    out = {"sources": [], "chunks": 0, "mb": 0, "cats": {}}
+    if ac.CORPUS_DB.exists():
+        db = ac.connect(ac.CORPUS_DB)
+        try:
+            for name, chunks, lic, cats in db.execute("SELECT name, chunks, license, cats FROM repos ORDER BY name"):
+                out["sources"].append({"name": name, "chunks": chunks or 0, "license": lic or "", "cats": (cats or "").split()})
+                out["chunks"] += chunks or 0
+                for c in (cats or "").split():
+                    out["cats"][c] = out["cats"].get(c, 0) + 1
+        except Exception:  # noqa: BLE001
+            pass
+        out["mb"] = round(ac.CORPUS_DB.stat().st_size / 1e6)
+    mine = json.loads(ac.EXTRA.read_text(encoding="utf-8")) if ac.EXTRA.exists() else []
+    names = {s["name"] for s in out["sources"]}
+    out["mine"] = [{"name": e["name"], "url": e["url"], "indexed": e["name"] in names} for e in mine]
+    return out
+
+
+def library_search(q, k=12):
+    ac = _corpus()
+    res = []
+    for r in ac.search_corpus(q, k=k, min_rel=0.3):
+        repo, path, name, sig, doc, body, cats, lic, role, line, kind = r
+        lines = (body or "").splitlines()
+        res.append({"repo": repo, "path": path, "name": name, "line": line, "kind": kind, "license": lic,
+                    "cats": (cats or "").split(), "snippet": "\n".join(lines[:40]), "more": max(0, len(lines) - 40)})
+    return res
+
+
+def library_remove(name):
+    ac = _corpus()
+    if ac.EXTRA.exists():
+        mine = [e for e in json.loads(ac.EXTRA.read_text(encoding="utf-8")) if e["name"] != name]
+        ac.EXTRA.write_text(json.dumps(mine, indent=2), encoding="utf-8")
+    if ac.CORPUS_DB.exists():
+        db = ac.connect(ac.CORPUS_DB)
+        with db:
+            db.execute("DELETE FROM chunks WHERE repo=?", (name,))
+            db.execute("DELETE FROM repos WHERE name=?", (name,))
+    return True
+
+
 # ------------------------------------------------------------------ CLI tasks with a live console
 class TaskRun:
     def __init__(self, args, cwd, title=None):
@@ -235,7 +487,9 @@ def state():
             "library": (config.KIT / "corpus" / "corpus.db").exists(), "os": os.name}
 
 
-def chat_list(q=None):
+def chat_list(q=None, project_only=False):
+    if project_only and not q:
+        return sessions.recent(60, project=str(project()))
     return sessions.recent(60, query=q or None)
 
 
@@ -244,7 +498,12 @@ def chat_messages(sid):
     if not s:
         return None
     out = []
-    for m in s.messages:
+    log = chatlog(sid)
+    by_at = {}
+    for e in log:
+        by_at.setdefault(e.get("at", 0), []).append(e["ev"])
+    for i, m in enumerate(s.messages):
+        out += [{"role": "event", "ev": ev} for ev in by_at.pop(i, [])]
         if m["role"] == "user":
             c = str(m.get("content", ""))
             if c.startswith("[WINDMILL DEBUGGER]"):
@@ -262,8 +521,12 @@ def chat_messages(sid):
                 out.append({"role": "tool", "name": tc["function"]["name"], "args": args})
         elif m["role"] == "tool":
             out.append({"role": "result", "text": str(m.get("content", ""))[:1500]})
-    return {"id": s.id, "title": s.title, "project": s.project, "messages": out,
-            "busy": bool(CHATS.get(sid) and CHATS[sid].busy)}
+    for at in sorted(by_at):
+        out += [{"role": "event", "ev": ev} for ev in by_at[at]]
+    run = CHATS.get(sid)
+    return {"id": s.id, "title": s.title, "project": s.project, "messages": out, "build": bool(log) or isinstance(run, BuildRun),
+            "busy": bool(run and run.busy),
+            "since": len(run.events) if isinstance(run, BuildRun) and run.busy else 0}
 
 
 def models_info():
@@ -435,7 +698,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             return self._json(state())
         if path == "/api/chats":
-            return self._json(chat_list(q.get("q", [""])[0]))
+            return self._json(chat_list(q.get("q", [""])[0], q.get("here", ["0"])[0] == "1"))
         m = re.match(r"^/api/chats/([0-9a-f]+)$", path)
         if m:
             data = chat_messages(m.group(1))
@@ -457,6 +720,18 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             t = TASKS.get(m.group(1))
             return self._sse(t, int(q.get("since", ["0"])[0])) if t else self._json({"error": "no task"}, 404)
+        if path == "/api/projects/list":
+            return self._json({"projects": projects_list()})
+        if path == "/api/project/detail":
+            p = q.get("path", [""])[0] or str(project())
+            return self._json(project_detail(p) if Path(p).is_dir() else {"error": "not a folder"})
+        if path == "/api/library":
+            return self._json(library_info())
+        if path == "/api/library/search":
+            try:
+                return self._json({"results": library_search(q.get("q", [""])[0])})
+            except Exception as e:  # noqa: BLE001
+                return self._json({"results": [], "error": str(e)[:200]})
         if path == "/api/projects-home":
             from . import project as proj
             return self._json({"path": str(proj.projects_home())})
@@ -565,16 +840,38 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": ok, "since": len(run.events)} if ok else {"error": "still working"}, 200 if ok else 409)
             if act == "stop":
                 run.cancel.set()
+                if isinstance(run, BuildRun):
+                    run.stop_build()
                 for qid, slot in list(run.answers.items()):
                     slot[1] = "no"
                     slot[0].set()
                 return self._json({"ok": True})
             if act == "answer":
+                if isinstance(run, BuildRun) and run.qid:
+                    return self._json({"ok": run.answer(b.get("qid"), b.get("text", ""))})
                 slot = run.answers.get(b.get("qid"))
                 if slot:
                     slot[1] = b.get("text", "")
                     slot[0].set()
                 return self._json({"ok": bool(slot)})
+        if path == "/api/build":  # build / new project, shown live in a chat
+            args = [str(a) for a in b.get("args", ["build"])]
+            if args[0] not in ("build", "new"):
+                return self._json({"error": "only build / new run in a chat"}, 400)
+            name = project().name
+            title = b.get("title") or (f"Build: {name}" if args[0] == "build" else "New project")
+            intro = b.get("intro") or (f"Build {name} - work through the roadmap." if args[0] == "build" else "Start a new project.")
+            sid = start_build(args, title, intro)
+            return self._json({"id": sid})
+        if path == "/api/roadmap":
+            ok = roadmap_edit(b.get("path") or str(project()), b.get("action", ""), b.get("text", ""), b.get("line"))
+            return self._json({"ok": ok})
+        if path == "/api/project/instructions":
+            p = Path(b.get("path") or str(project()))
+            (p / "AGENTS.md").write_text(b.get("text", ""), encoding="utf-8")
+            return self._json({"ok": True})
+        if path == "/api/library/remove":
+            return self._json({"ok": library_remove(b.get("name", ""))})
         if path == "/api/tasks":
             args = [str(a) for a in b.get("args", [])]
             tid = secrets.token_hex(4)

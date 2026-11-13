@@ -26,7 +26,8 @@ import ai_corpus  # noqa: E402
 import ai_index  # noqa: E402
 import ai_query  # noqa: E402
 from common import (DIFF_EXCLUDE, check_server, chat, diff_since, die, git, is_dirty,  # noqa: E402
-                    journal, load_project_cfg, log, repo_map, repo_root, run_aider, run_dir, run_shell)
+                    journal, load_project_cfg, log, repo_map, repo_root, run_aider, run_dir, run_shell,
+                    EVENTS, emit)
 
 PLAN_SYSTEM = """You are a principal engineer planning work for a junior engineer who will
 execute ONE step at a time with no memory of other steps. Do not write the full code.
@@ -210,7 +211,10 @@ def main():
             ])
         plan_path.write_text(plan, encoding="utf-8")
     plan = plan_path.read_text(encoding="utf-8")
-    print(plan)
+    if EVENTS:
+        emit(type="text", text="**The plan**\n\n" + plan + "\n")
+    else:
+        print(plan)
     steps = parse_steps(plan)
     if not steps:
         log("Plan has no parsable steps - falling back to a single implementation step.")
@@ -262,7 +266,10 @@ def main():
         ], temperature=0.3)
         review_path = out / f"REVIEW-{rnd}.md"
         review_path.write_text(review, encoding="utf-8")
-        print(review)
+        if EVENTS:
+            emit(type="text", text="**Reviewer**\n\n" + review + "\n")
+        else:
+            print(review)
         verdicts = re.findall(r"VERDICT:\s*(PASS|FAIL)", review, re.I)
         incomplete = re.search(r"^\s*[-*]?\s*\**R\d+\**\s*:\s*\**(PARTIAL|MISSING)", review, re.M | re.I)
         approved = bool(verdicts) and verdicts[-1].upper() == "PASS" and not incomplete

@@ -115,11 +115,20 @@ def show_brief(i, b):
 def pick_design(name, game=False, root=None):
     while True:
         opts = design.options(name, 3, game=game)
-        ui.rule("Choose a look")
-        for i, b in enumerate(opts, 1):
-            show_brief(i, b)
-        print(f"\n  {ui.bcyan('r')}  show 3 different ones     {ui.bcyan('c')}  use my brand colour")
-        v = ui.ask("Pick 1, 2 or 3", "1").lower()
+        if ui.EVENTS:  # the app shows the looks as buttons with their colour swatches
+            ui.emit(type="ask", text="Choose a look", options=[
+                [str(i), f"{b['label']} ({b['mode']})",
+                 f"{b['fonts']['display']} + {b['fonts']['body']} · " + " · ".join(b["signature_moves"][:2])]
+                for i, b in enumerate(opts, 1)] + [["r", "Show 3 different ones", ""], ["c", "Use my brand colour", ""]],
+                swatches={str(i): [b["palette"][k] for k in ("bg", "surface", "text", "primary", "accent")]
+                          for i, b in enumerate(opts, 1)}, default="1")
+            v = (ui._read() or "1").lower()
+        else:
+            ui.rule("Choose a look")
+            for i, b in enumerate(opts, 1):
+                show_brief(i, b)
+            print(f"\n  {ui.bcyan('r')}  show 3 different ones     {ui.bcyan('c')}  use my brand colour")
+            v = ui.ask("Pick 1, 2 or 3", "1").lower()
         if v == "r":
             continue
         if v == "c":
@@ -175,15 +184,22 @@ def new_project(idea=None, who=None, extra=None, parent=None):
         ui.err("The model didn't return a usable plan. Try describing it again with a bit more detail.")
         return
     preset = PRESETS[plan["preset"]]
-    ui.rule(plan["name"])
-    print(f"  {plan['one_liner']}\n  {ui.dim('For:')} {plan.get('audience', '')}\n  {ui.dim('Built with:')} {preset['stack']}")
-    print(ui.dim("\n  Features:"))
-    for f in plan["features"]:
-        print(f"   • {f}")
-    print(ui.dim("\n  Build plan:"))
-    for i, m in enumerate(plan["milestones"], 1):
-        print(f"   {i}. {m[:110]}")
-    print()
+    if ui.EVENTS:  # the plan as a readable message in the app's chat
+        ui.emit(type="text", text=f"## {plan['name']}\n\n{plan['one_liner']}\n\n**For:** {plan.get('audience', '')}  \n"
+                                  f"**Built with:** {preset['stack']}\n\n**Features**\n\n"
+                                  + "\n".join(f"- {f}" for f in plan["features"]) + "\n\n**Build plan**\n\n"
+                                  + "\n".join(f"{i}. {m}" for i, m in enumerate(plan["milestones"], 1)) + "\n")
+        ui.emit(type="final")
+    else:
+        ui.rule(plan["name"])
+        print(f"  {plan['one_liner']}\n  {ui.dim('For:')} {plan.get('audience', '')}\n  {ui.dim('Built with:')} {preset['stack']}")
+        print(ui.dim("\n  Features:"))
+        for f in plan["features"]:
+            print(f"   • {f}")
+        print(ui.dim("\n  Build plan:"))
+        for i, m in enumerate(plan["milestones"], 1):
+            print(f"   {i}. {m[:110]}")
+        print()
     change = ui.ask("Press Enter to accept, or type what to change")
     if change:
         with ui.Spinner("updating the plan"):
@@ -210,6 +226,8 @@ def new_project(idea=None, who=None, extra=None, parent=None):
     pick_design(plan["name"], game=preset["game"], root=root)
     scaffold(root, plan, preset)
     ui.ok(f"Project created at {root}")
+    if ui.EVENTS:
+        ui.emit(type="project", path=str(root))
     if ui.confirm("Start building it now? (it works through the milestones on its own)", True):
         build(root)
     else:

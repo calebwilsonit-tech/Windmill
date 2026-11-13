@@ -1,5 +1,6 @@
 """Terminal look & feel: colours, logo, menus, prompts, spinner. Stdlib only, works on Windows."""
 import itertools
+import json
 import os
 import shutil
 import sys
@@ -64,7 +65,31 @@ def width():
     return min(shutil.get_terminal_size((100, 30)).columns, 120)
 
 
+# Inside the desktop app (WINDMILL_EVENTS=1) Windmill reports what it's doing as structured events - one per line,
+# marked with \x1eWM - and the app shows them in a chat (headings, notes, questions as buttons, the AI's thinking,
+# code it writes...). In a normal terminal none of this is active.
+EVENTS = bool(os.environ.get("WINDMILL_EVENTS"))
+MARK = "\x1eWM"
+
+
+def strip_ansi(t):
+    import re
+    return re.sub(r"\x1b\[[\d;]*[A-Za-z]", "", str(t))
+
+
+def emit(**ev):
+    try:
+        sys.stdout.write(MARK + json.dumps(ev, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
 def rule(title=""):
+    if EVENTS:
+        if title:
+            emit(type="phase", text=title)
+        return
     w = width()
     if title:
         print(gray("── ") + bold(title) + " " + gray("─" * max(0, w - len(title) - 4)))
@@ -73,22 +98,40 @@ def rule(title=""):
 
 
 def info(m):
+    if EVENTS:
+        return emit(type="note", text=m)
     print(cyan("› ") + m)
 
 
 def ok(m):
+    if EVENTS:
+        return emit(type="ok", text=m)
     print(green("✓ ") + m)
 
 
 def warn(m):
+    if EVENTS:
+        return emit(type="warn", text=m)
     print(yellow("! ") + m)
 
 
 def err(m):
+    if EVENTS:
+        return emit(type="error", text=m)
     print(red("✗ ") + m)
 
 
+def _read():
+    try:
+        return input().strip()
+    except EOFError:
+        return ""
+
+
 def ask(prompt, default=None):
+    if EVENTS:
+        emit(type="ask", text=prompt, default=default)
+        return _read() or (default if default is not None else "")
     d = f" {dim('[' + str(default) + ']')}" if default not in (None, "") else ""
     try:
         v = input(f"{cyan('?')} {prompt}{d} ").strip()
@@ -98,12 +141,29 @@ def ask(prompt, default=None):
 
 
 def confirm(prompt, default=True):
+    if EVENTS:
+        emit(type="ask", text=prompt, yn=True, default="yes" if default else "no")
+        v = _read().lower()
+        return default if not v else v.startswith("y")
     v = ask(prompt + (" (Y/n)" if default else " (y/N)")).lower()
     return default if not v else v.startswith("y")
 
 
 def menu(title, options, allow_back=True):
     """options: list of (key, label, hint). Returns chosen key or None."""
+    if EVENTS:
+        keys = {str(i): key for i, (key, _, _) in enumerate(options, 1)}
+        opts = [[str(i), strip_ansi(label), strip_ansi(hint or "")] for i, (_, label, hint) in enumerate(options, 1)]
+        while True:
+            emit(type="ask", text=title, options=opts + ([["0", "Cancel", ""]] if allow_back else []))
+            v = _read()
+            if v in ("0", "", "q", "exit") and allow_back:
+                return None
+            if v in keys:
+                return keys[v]
+            for k, label, _ in options:
+                if v and (v.lower() == str(k).lower() or label.lower().startswith(v.lower())):
+                    return k
     rule(title)
     keys = {}
     for i, (key, label, hint) in enumerate(options, 1):
@@ -140,6 +200,9 @@ class Spinner:
         self.extra = ""
 
     def __enter__(self):
+        if EVENTS:
+            emit(type="activity", text=self.text)
+            return self
         if not getattr(sys.stdout, "isatty", lambda: False)():
             return self
         def spin():

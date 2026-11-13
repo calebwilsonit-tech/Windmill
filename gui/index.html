@@ -26,9 +26,12 @@
       </div>
     </div>
     <input id="chat-search" type="search" placeholder="Search chats…" autocomplete="off">
+    <div class="seg" id="chat-scope"><button data-here="1" class="on">This project</button><button data-here="0">All chats</button></div>
     <nav id="chat-list" aria-label="Chats"></nav>
     <div class="nav-bottom">
       <button class="nav" data-view="home">⌂ Home</button>
+      <button class="nav" data-view="projects">▦ Projects</button>
+      <button class="nav" data-view="library">❏ Code library</button>
       <button class="nav" data-view="console">▤ Commands <span class="kbd">Ctrl K</span></button>
       <button class="nav" data-view="models">◈ AI models</button>
       <button class="nav" data-view="plugins">⧉ Plugins</button>
@@ -78,6 +81,7 @@
     <section class="view hidden" id="view-chat">
       <div id="transcript" aria-live="polite"></div>
       <div id="activity" class="activity hidden"><div class="spinner"></div><span id="activity-text">Working…</span><span id="activity-time" class="muted"></span></div>
+      <div id="queue" class="queue hidden" aria-label="Queued messages"></div>
       <div id="composer">
         <textarea id="input" rows="1" placeholder="Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)"></textarea>
         <div class="composer-row">
@@ -86,6 +90,47 @@
           <button class="primary" id="send-btn">Send</button>
         </div>
       </div>
+    </section>
+
+    <!-- PROJECTS (like Claude's projects: a folder, its chats, its plan and instructions) -->
+    <section class="view hidden" id="view-projects">
+      <div id="projects-grid" class="proj-grid"></div>
+      <div id="project-page" class="hidden">
+        <button class="ghost small" id="proj-back">← All projects</button>
+        <div class="proj-head"><div><h2 id="pp2-name"></h2><div class="muted small" id="pp2-path"></div></div>
+          <div class="row"><button class="ghost" id="pp2-use">Work in this project</button><button class="primary" id="pp2-chat">＋ New chat here</button></div></div>
+        <div class="proj-cols">
+          <div class="proj-col">
+            <h3>Build plan <span class="muted small" id="pp2-progress"></span></h3>
+            <div id="pp2-roadmap" class="roadmap"></div>
+            <div class="row"><input id="pp2-add" placeholder="Add a milestone - e.g. a settings page with dark mode" style="flex:1"><button class="ghost" id="pp2-add-btn">Add</button></div>
+            <div class="row" style="margin-top:8px"><button class="primary" id="pp2-build">⚙ Build the plan</button></div>
+            <h3 style="margin-top:22px">Chats</h3>
+            <div id="pp2-chats" class="list"></div>
+          </div>
+          <div class="proj-col">
+            <h3>Instructions <span class="muted small">(AGENTS.md - the AI reads this in every chat and build)</span></h3>
+            <textarea id="pp2-instr" rows="16" spellcheck="false"></textarea>
+            <div class="row"><button class="ghost" id="pp2-instr-save">Save instructions</button><span class="muted small" id="pp2-instr-msg"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CODE LIBRARY -->
+    <section class="view hidden" id="view-library">
+      <p class="muted">Windmill's code library: real, working code it looks things up in while it builds. It only pulls the few
+      snippets that match the task, so a huge library costs almost nothing in the AI's memory (tokens).</p>
+      <div class="lib-stats" id="lib-stats"></div>
+      <div class="row"><input id="lib-q" type="search" placeholder="Search the library - e.g. inventory drag and drop, egui theme, http client retry" style="flex:1"><button class="primary" id="lib-go">Search</button></div>
+      <div id="lib-results" class="lib-results"></div>
+      <h3>Add to the library</h3>
+      <div class="row"><input id="lib-add" placeholder="A GitHub repo (owner/name or URL) or a folder on this PC" style="flex:1"><button class="ghost" id="lib-browse">Folder…</button><button class="primary" id="lib-add-btn">Add</button></div>
+      <p class="muted small">Your own code is a great addition - Windmill will reuse your patterns and style.</p>
+      <h3>Your sources</h3>
+      <div id="lib-mine" class="list"></div>
+      <details><summary>Everything in the library</summary><div id="lib-all" class="lib-all"></div></details>
+      <div class="row" style="margin-top:10px"><button class="ghost" data-task="library fetch">Download / update all sources</button><button class="ghost" data-task="library index">Re-index</button></div>
     </section>
 
     <!-- CONSOLE (every CLI command) -->
