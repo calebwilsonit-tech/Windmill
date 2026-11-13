@@ -10,15 +10,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import os  # noqa: E402
 import subprocess  # noqa: E402
 
-# Started without a console (pythonw, i.e. the desktop app): there is no stdout/stderr, and the first print
-# would crash. Send everything to a log instead, and keep the programs we start from flashing console windows.
+# Started without a console (pythonw, i.e. the desktop app): there may be no stdout/stderr, and the first print
+# would crash. Send everything to a log instead.
 if sys.stdout is None or sys.stderr is None:
     _logdir = Path.home() / ".windmill" / "logs"
     _logdir.mkdir(parents=True, exist_ok=True)
     _log = open(_logdir / "app.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
     sys.stdout = sys.stdout or _log
     sys.stderr = sys.stderr or _log
-    if os.name == "nt":
+
+# No visible console window (the desktop app, its background jobs, a restart after an update): every program we
+# start (git, cargo, nvidia-smi...) would otherwise get its own console window that flashes up for a moment.
+# In a normal terminal this does nothing - programs keep printing into your terminal as usual.
+if os.name == "nt":
+    try:
+        import ctypes
+        _no_console = not ctypes.windll.kernel32.GetConsoleWindow()
+    except Exception:  # noqa: BLE001
+        _no_console = sys.stdout is None
+    if _no_console:
         _popen_init = subprocess.Popen.__init__
 
         def _hidden(self, *a, **kw):

@@ -684,8 +684,7 @@ def restart():
     exe = sys.executable
     kw = {"creationflags": 0x00000200 | 0x08000000} if os.name == "nt" else {"start_new_session": True}
     subprocess.Popen([exe, str(config.KIT / "windmill.py"), "app", "--serve", "--port", str(STATE["port"]),
-                      "--token", STATE["token"]], cwd=str(config.KIT), stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **kw)
+                      "--token", STATE["token"]], cwd=str(config.KIT), stdin=subprocess.DEVNULL, close_fds=True, **kw)
     os._exit(0)
 
 
