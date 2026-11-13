@@ -352,7 +352,7 @@ async function runTask(args, opts = {}) {
   if (r.error) { toast(r.error); return; }
   const t = S.tasks[r.id] = { id: r.id, args, title, started: Date.now(), done: false, code: null,
     text: `\x1b[2m$ windmill ${args.map(a => /\s/.test(a) ? `"${a}"` : a).join(" ")}\x1b[0m\n`, onExit: opts.onExit, onOut: opts.onOut };
-  if (opts.console) showDetails(r.id); else toast(`${t.title} - running in the background`);
+  if (opts.console) showDetails(r.id);
   const es = new EventSource(`/api/tasks/${r.id}/events?since=0`);
   let pending = false;
   es.onmessage = e => {
@@ -364,7 +364,7 @@ async function runTask(args, opts = {}) {
       t.text += `\n\x1b[2m(finished${ev.code ? `, exit code ${ev.code}` : ""})\x1b[0m\n`;
       if (t.onExit) t.onExit(t);
       refresh(); loadChats();
-      if (!ev.code) setTimeout(() => { if (S.consoleTask !== t.id) { delete S.tasks[t.id]; renderJobs(); } }, 10000);
+      if (!ev.code) setTimeout(() => { if (S.consoleTask !== t.id) { delete S.tasks[t.id]; renderJobs(); } }, 4000);
     }
     if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; renderAll(); }); }
   };
@@ -378,7 +378,15 @@ function renderAll() {
 function renderJobs() {
   const list = Object.values(S.tasks);
   const box = $("#jobs");
-  box.classList.toggle("hidden", !list.length);
+  const running = list.filter(t => !t.done).length, waiting = list.filter(t => !t.done && promptOf(t.text)).length;
+  const failed = list.filter(t => t.done && t.code).length;
+  const btn = $("#tasks-btn");
+  btn.classList.toggle("hidden", !list.length);
+  btn.classList.toggle("ask", waiting > 0); btn.classList.toggle("bad", !running && failed > 0);
+  $("#tasks-spin").classList.toggle("hidden", !running || waiting > 0);
+  $("#tasks-label").textContent = waiting ? "Needs your answer" : running ? `${running} running` : failed ? "Had a problem" : "Done";
+  if (!list.length) S.jobsOpen = false;
+  box.classList.toggle("hidden", !S.jobsOpen);
   box.innerHTML = list.map(t => {
     const waiting = !t.done && promptOf(t.text);
     const line = waiting ? "Waiting for your answer" : t.done ? (t.code ? `Stopped with a problem - see details` : "Done")
@@ -392,6 +400,7 @@ function renderJobs() {
     const id = el.dataset.id, act = e.target.dataset.act;
     if (act === "stop") return api(`/api/tasks/${id}/stop`, {});
     if (act === "close") { delete S.tasks[id]; return renderJobs(); }
+    S.jobsOpen = false; box.classList.add("hidden");
     if (act === "details") return showDetails(id);
     if (S.tasks[id] && !S.tasks[id].done && promptOf(S.tasks[id].text)) { delete S.askHidden[id]; S.asking = null; renderAsk(); }
   });
@@ -428,7 +437,7 @@ function renderAsk() {
   $("#ask-input").onkeydown = e => { if (e.key === "Enter") taskInput(t.id, $("#ask-input").value); };
   $("#ask-details").onclick = () => showDetails(t.id);
   $("#ask-stop").onclick = () => api(`/api/tasks/${t.id}/stop`, {});
-  $("#ask-close").onclick = () => { S.askHidden[t.id] = true; S.asking = null; m.classList.add("hidden"); toast("It'll wait for your answer - click it in the corner when you're ready."); };
+  $("#ask-close").onclick = () => { S.askHidden[t.id] = true; S.asking = null; m.classList.add("hidden"); renderJobs(); };
   m.classList.remove("hidden");
   if (free) setTimeout(() => $("#ask-input").focus(), 0);
 }
@@ -456,7 +465,7 @@ $("#new-form").onsubmit = e => {
   $("#new-modal").classList.add("hidden");
   runTask(args, { title: "New project", onOut: t => {
     const m = !t.switched && strip(t.text).match(/Project created at (.+)/);
-    if (m) { t.switched = true; api("/api/project", { path: m[1].trim() }).then(() => { refresh(); toast("Now working in your new project"); }); }
+    if (m) { t.switched = true; api("/api/project", { path: m[1].trim() }).then(() => refresh()); }
   } });
 };
 
@@ -513,7 +522,6 @@ document.addEventListener("keydown", e => {
 
 // ---------------------------------------------------------------- project
 async function browseFolder(start, title) {
-  toast("A folder window is opening…", 4000);
   const r = await api("/api/pick-folder", { start, title });
   if (r.error) toast("The folder window couldn't open - type or paste the path instead. (" + r.error + ")", 6000);
   return r.path || null;
@@ -526,7 +534,7 @@ async function switchProject(path) {
   const st = await api("/api/project", { path });
   if (st.error) { $("#proj-error").textContent = st.error; return false; }
   closeProjPop();
-  S.chat = null; await refresh(); if (S.view !== "chat") show("home"); toast("Now working in " + baseName(path));
+  S.chat = null; await refresh(); if (S.view !== "chat") show("home");
   return true;
 }
 function closeProjPop() { $("#proj-pop").classList.add("hidden"); }
@@ -583,6 +591,10 @@ function renderRepos() {
   $$("#repos-list [data-connect]").forEach(b => b.onclick = () => { $("#repos-modal").classList.add("hidden"); gitTask(["connect", b.dataset.connect], "Connect " + b.dataset.connect); });
 }
 $("#repos-search").oninput = renderRepos;
+$("#tasks-btn").onclick = () => { S.jobsOpen = !S.jobsOpen; renderJobs(); };
+document.addEventListener("mousedown", e => {
+  if (S.jobsOpen && !e.target.closest("#jobs,#tasks-btn")) { S.jobsOpen = false; renderJobs(); }
+});
 $("#repos-close").onclick = () => $("#repos-modal").classList.add("hidden");
 function renderGit(g) {
   const conn = g.repo && g.remote;
@@ -630,11 +642,11 @@ async function loadModels() {
       ${m.bench ? ` · benchmark ${m.bench[0]}/${m.bench[1]}` : ""} · <span title="${esc(m.path)}">${esc(m.source)}</span></div></div>
       ${m.selected ? "" : `<button class="ghost small" data-path="${esc(m.path)}">Use this</button>`}
     </div>`).join("") || `<div class="muted">No models found yet. <a href="#" data-task="get-model">Get one</a>.</div>`;
-  $$("#models-list [data-path]").forEach(b => b.onclick = async () => { await api("/api/models/select", { path: b.dataset.path }); toast("Model switched - it starts on your next message"); loadModels(); refresh(); });
+  $$("#models-list [data-path]").forEach(b => b.onclick = async () => { await api("/api/models/select", { path: b.dataset.path }); loadModels(); refresh(); });
   const sv = await api("/api/server");
   $("#server-log").textContent = sv.log || "(no log yet)";
   $("#server-toggle").textContent = sv.healthy ? "■ Stop the model (frees memory)" : "▶ Start the model now";
-  $("#server-toggle").onclick = async () => { await api(sv.healthy ? "/api/server/stop" : "/api/server/start", {}); toast(sv.healthy ? "Stopped" : "Starting… (can take a minute)"); setTimeout(loadModels, 1500); };
+  $("#server-toggle").onclick = async () => { await api(sv.healthy ? "/api/server/stop" : "/api/server/start", {}); setTimeout(loadModels, 1500); };
 }
 
 // ---------------------------------------------------------------- plugins
