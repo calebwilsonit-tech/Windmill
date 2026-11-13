@@ -268,6 +268,50 @@ things keep that pack sharp:
 The library also **keeps growing by itself**: every 30 days (`library_refresh_days`) Windmill updates
 the library, re-runs discovery and downloads new projects in the background.
 
+## How good is it? `windmill benchmark`
+
+Ten Rust coding tasks, from easy to hard: Roman numerals, merging intervals, an LRU cache, a **game
+inventory with item stacking**, word wrap, a CSV parser, an expression calculator, weighted grid
+pathfinding, a rate limiter and semantic-version ranges. The model sees a spec, a stub and a couple of
+example tests. **Scoring uses hidden tests it never sees**, so nothing can be gamed. Every task ships with a
+reference solution, and `windmill benchmark --selftest` proves the hidden tests are correct.
+
+```
+windmill benchmark                       # your model: plain chat vs. full Windmill
+windmill benchmark --tasks 01,04,07      # just some tasks
+windmill benchmark --history             # earlier runs (results also show up in `windmill models`)
+```
+- **plain:** the model answers once, like a chatbot would.
+- **windmill:** the full agent: tools, checks, debugger, review.
+
+The gap between the two is what Windmill adds.
+
+**Compare with a frontier model** (Claude, GPT, Gemini, through any OpenAI-compatible API). Put your key in
+an environment variable; it's only read for the run, never saved:
+```
+set OPENAI_API_KEY=sk-...
+windmill benchmark --api https://api.openai.com/v1 --api-model <model> --api-key-env OPENAI_API_KEY
+```
+Other providers' OpenAI-compatible addresses: Gemini `https://generativelanguage.googleapis.com/v1beta/openai`,
+Anthropic `https://api.anthropic.com/v1`, OpenRouter `https://openrouter.ai/api/v1`. That adds
+`api-plain` and `api-windmill` rows, so you see the frontier model both on its own and inside Windmill.
+
+## Getting new AI models
+
+New models come out constantly, and the community "quantizes" them (shrinks them, with little quality
+loss) so they run on normal PCs. **Get a new AI model** in the menu (or `windmill get-model`) shows the
+best current ones **for your PC**, refreshed from Hugging Face once a day:
+- only from trusted publishers (unsloth, bartowski, lmstudio-community, ggml-org and the model makers
+  themselves); no uncensored merges, and no audio, video or image models
+- scored on popularity, momentum, how new it is, whether it's built for coding, and how well it will
+  run here. Each one is labelled **fast** (fits your GPU), **good speed** (MoE, runs well from RAM) or
+  **slow** (a dense model bigger than your GPU)
+- the size is chosen to leave room for context: Q5_K_M where it fits, Q4 otherwise
+
+There's never a pop-up. At most you'll see one quiet *tip* line on the home screen naming a model that
+would run well and that you don't have yet. Choosing one downloads it, switches to it, and suggests
+`windmill benchmark` so you can compare.
+
 ## Models
 
 `windmill models` lists every GGUF model on your PC (LM Studio, Ollama, Hugging Face cache, Downloads,
@@ -329,6 +373,8 @@ windmill history [words]      list / search chats   (--all includes internal one
 windmill resume [n | words]   reopen a chat
 windmill design               look & feel
 windmill models               choose a model
+windmill get-model            recommended new models for your PC
+windmill benchmark            measure the AI (10 tasks, hidden tests)
 windmill server start|stop|status|logs
 windmill tune                 GPU auto-tuning
 windmill library fetch|index|add|search|stats|pack

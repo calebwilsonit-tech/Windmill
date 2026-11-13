@@ -15,12 +15,15 @@ COMMANDS = [
     ("check", "", "check the project: build, tests, sloppy-code guard"),
     ("plan", "<task>", "big task: plan -> verified steps -> review -> mutation testing"),
     ("best", "<task> [-n N]", "hard task: N independent attempts, keep the best"),
+    ("benchmark", "[--tasks 01,03] [--modes plain,windmill] [--api URL --api-model M --api-key-env VAR]",
+     "measure the AI on 10 coding tasks with hidden tests"),
     ("history", "[words]", "list / search past chats"),
     ("resume", "[n | words]", "continue a past chat (default: last one in this folder)"),
     ("design", "", "pick or change the project's look & feel"),
     ("android", "setup|status|init|build|install|logs", "native Android apps (.apk) from Rust"),
     ("apk", "[--debug]", "build the Android app (.apk) for this project"),
     ("models", "", "find the AI models on this computer and choose one"),
+    ("get-model", "", "recommended new models for your PC (from Hugging Face, refreshed daily)"),
     ("server", "start|stop|status|logs", "control the model server (normally automatic)"),
     ("tune", "", "make the model use your GPU as much as safely possible"),
     ("library", "fetch|index|add|search|stats|pack", "the reference library"),
@@ -50,6 +53,14 @@ def status_line():
     print(f"  {ui.dim('library')} {'ready' if lib.exists() else ui.dim('not downloaded')}")
     from . import version as _v
     print(f"  {ui.dim('version')} {_v.current()}")
+    try:
+        from . import recommend
+        recommend.refresh_in_background()  # quiet, at most daily; shows up next time
+        line = recommend.home_line()
+        if line:
+            print(f"  {ui.dim('tip')}     {ui.dim(line)}")
+    except Exception:  # noqa: BLE001
+        pass
     print()
 
 
@@ -70,7 +81,9 @@ def main_menu():
                  ("debug", "Fix a problem", "debugger: reproduce -> root cause -> fix"),
                  ("run", "Run my app", ""),
                  ("design", "Look & feel", "unique design for this project"),
-                 ("models", "AI models", "find / switch / download"),
+                 ("models", "AI models", "switch between the models you have"),
+                 ("get-model", "Get a new AI model", "recommended for your PC, updated daily"),
+                 ("benchmark", "Test how good the AI is", "10 coding tasks, hidden tests"),
                  ("library", "Reference library", "search or download"),
                  ("setup", "Setup & health check", ""),
                  ("help", "All commands", "")]
@@ -98,8 +111,8 @@ def models_menu():
     if not found:
         ui.warn("No models found. Searched: " + ", ".join(str(d) for d in models.search_dirs(cfg)) + ", Ollama")
         if ui.confirm("Download one now?", True):
-            from .setup import step_model
-            step_model()
+            from . import recommend
+            recommend.menu()
         else:
             ui.info("Or add a folder to search:  windmill settings model_dirs \"D:\\\\my models\"")
         return
@@ -263,6 +276,29 @@ def android_init(root):
                 "  windmill \"make this project start on Android (see AGENTS.md android rules)\"")
 
 
+def benchmark(args):
+    import os as _os
+    from . import bench
+    opt = lambda k, d=None: args[args.index(k) + 1] if k in args and args.index(k) + 1 < len(args) else d
+    if "--selftest" in args:
+        ok = bench.selftest(opt("--tasks"))
+        (ui.ok if ok else ui.err)("All tasks are valid." if ok else "Some tasks are broken (see above).")
+        return
+    if "--history" in args:
+        return bench.history()
+    api = None
+    if opt("--api"):
+        key = _os.environ.get(opt("--api-key-env", "OPENAI_API_KEY"), "")
+        if not key:
+            return ui.err(f"Set your API key in the environment variable {opt('--api-key-env', 'OPENAI_API_KEY')} first "
+                          "(it's only read, never saved).")
+        if not opt("--api-model"):
+            return ui.err("Also give --api-model <model name>.")
+        api = {"base": opt("--api"), "key": key, "model": opt("--api-model")}
+    modes = opt("--modes") or ("plain,windmill" + (",api-plain,api-windmill" if api else ""))
+    bench.run(tuple(m.strip() for m in modes.split(",")), opt("--tasks"), api, int(opt("--max-steps", 50)))
+
+
 def help_all():
     ui.rule("Commands")
     for c, a, d in COMMANDS:
@@ -309,6 +345,11 @@ def dispatch(argv):
         if not args:
             return ui.warn('Usage: windmill best "what to build" [-n 4]')
         server.ensure() and script("best_of_n.py", args)
+    elif cmd in ("get-model", "recommend"):
+        from . import recommend
+        recommend.menu()
+    elif cmd in ("benchmark", "bench"):
+        benchmark(args)
     elif cmd == "history":
         history(args)
     elif cmd == "resume":

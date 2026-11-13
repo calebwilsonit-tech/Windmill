@@ -19,22 +19,33 @@ def est_tokens(obj):
 
 
 class LLM:
-    def __init__(self, cfg=None):
+    def __init__(self, cfg=None, base=None, key=None, model=None):
+        """Local llama-server by default; or any OpenAI-compatible API (base URL + key + model name)."""
         self.cfg = cfg or config.load()
-        self.base = config.api_base(self.cfg)
+        self.base = (base or config.api_base(self.cfg)).rstrip("/")
+        self.key, self.model = key, model or "local"
+        self.external = bool(base)
         self.usage = {"prompt": 0, "completion": 0}
 
     def chat(self, messages, tools=None, temperature=0.6, max_tokens=8192, on_text=None, on_think=None,
              stream=True, extra=None):
         """Returns {"content", "reasoning", "tool_calls": [{"id","name","arguments"}], "finish"}."""
-        body = {"model": "local", "messages": messages, "temperature": temperature, "top_p": 0.95,
-                "top_k": 20, "max_tokens": max_tokens, "stream": stream}
+        if self.external:  # hosted APIs: only parameters every OpenAI-compatible provider accepts
+            body = {"model": self.model, "messages": messages, "stream": stream,
+                    ("max_completion_tokens" if "openai.com" in self.base else "max_tokens"): max_tokens}
+            if stream:
+                body["stream_options"] = {"include_usage": True}
+        else:
+            body = {"model": "local", "messages": messages, "temperature": temperature, "top_p": 0.95,
+                    "top_k": 20, "max_tokens": max_tokens, "stream": stream}
         if tools:
             body["tools"] = tools
         if extra:
             body.update(extra)
-        req = urllib.request.Request(f"{self.base}/chat/completions", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
+        headers = {"Content-Type": "application/json"}
+        if self.key:
+            headers["Authorization"] = f"Bearer {self.key}"
+        req = urllib.request.Request(f"{self.base}/chat/completions", data=json.dumps(body).encode(), headers=headers)
         content, reasoning, calls, finish = [], [], {}, None
         try:
             resp = urllib.request.urlopen(req, timeout=7200)

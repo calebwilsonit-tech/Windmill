@@ -128,10 +128,11 @@ class Printer:
 
 
 class Agent:
-    def __init__(self, root, cfg=None, session=None, interactive=True, printer=None, critic=True, max_steps=None):
+    def __init__(self, root, cfg=None, session=None, interactive=True, printer=None, critic=True, max_steps=None,
+                 llm=None):
         self.root = Path(root).resolve()
         self.cfg = cfg or config.load()
-        self.llm = LLM(self.cfg)
+        self.llm = llm or LLM(self.cfg)
         self.interactive = interactive
         self.p = printer or Printer(self.cfg.get("show_thinking"), quiet=not interactive)
         self.tools = Tools(self.root, interactive, self.cfg.get("permission", "auto"), ask=self._ask if interactive else None)

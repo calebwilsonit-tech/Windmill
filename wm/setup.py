@@ -126,8 +126,12 @@ def step_model():
             if ui.confirm("Choose a different one?", False):
                 choose_model(found, hw)
         return True
-    ui.info("No AI models found yet. Searching Hugging Face for good ones that fit your computer...")
-    with ui.Spinner("searching"):
+    ui.info("No AI models found yet. Here are good ones that fit your computer:")
+    from . import recommend
+    recommend.menu()
+    if models.current_model(config.load()):
+        return True
+    with ui.Spinner("searching more widely"):
         sugg = suggest_downloads(hw)
     if not sugg:
         ui.err("Couldn't reach Hugging Face. Download a .gguf model manually into "
@@ -151,8 +155,16 @@ def step_model():
 
 def choose_model(found, hw):
     opts = []
+    try:
+        from .bench import best_scores
+        scores = best_scores()
+    except Exception:  # noqa: BLE001
+        scores = {}
     for i, m in enumerate(found):
         tag, why = models.fit(m, hw)
+        if m["name"] in scores:
+            s, n = scores[m["name"]]
+            why += ui.dim(f"  benchmark {s}/{n}")
         col = ui.green if tag == "fast" else ui.yellow if tag == "ok" else ui.red
         moe = f"MoE {m['experts']}x" if m.get("experts") else "dense"
         opts.append((i, f"{m['name'][:44]:44} {m['size_gb']:5.1f} GB {m['quant']:7} {moe:9}",
