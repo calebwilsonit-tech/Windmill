@@ -272,6 +272,16 @@ def run_setup(update_llama=False):
         print(f"  Make something new:          {ui.bcyan('windmill new')}")
 
 
+def _cmd_status():
+    import shutil
+    w = shutil.which("windmill")
+    if not w:
+        return "not on PATH yet - open a new terminal (or run  python windmill.py doctor  from the Windmill folder)"
+    if w.lower().endswith(".py"):
+        return f"PROBLEM: 'windmill' opens {w} instead of Windmill - open a new terminal; Windmill just fixed PATH"
+    return w
+
+
 def _app_status():
     import os
     from . import gui, version
@@ -303,6 +313,7 @@ def doctor():
         ("Model", cfg.get("model_name") or "none selected - run windmill models", bool(models.current_model(cfg))),
         ("Model server", "running" if server.health(cfg) else "stopped (starts automatically when needed)", True),
         ("Desktop app", _app_status(), True),
+        ("windmill command", _cmd_status(), True),
         ("Library", "ready" if (config.KIT / "corpus" / "corpus.db").exists() else "not downloaded (windmill library fetch)", True),
         ("Android", "ready (.apk builds)" if _android_ok() else "not set up (optional: windmill android setup)", True),
     ]

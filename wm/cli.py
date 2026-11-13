@@ -488,11 +488,43 @@ def dispatch(argv):
         chat(argv)
 
 
+def ensure_command():
+    """Windows: (re)write the `windmill` terminal command so it always runs this Windmill with this Python,
+    and put it first on the user PATH (so a stray windmill.py on PATH can't open a 'select an app' box)."""
+    import os
+    try:
+        exe = sys.executable
+        if exe.lower().endswith("pythonw.exe"):
+            exe = exe[:-11] + "python.exe"
+        bindir = Path.home() / ".windmill" / "bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        shim = bindir / "windmill.cmd"
+        script = config.KIT / "windmill.py"
+        body = f'@echo off\r\n"{exe}" "{script}" %*\r\n'
+        if not shim.exists() or shim.read_text(encoding="ascii", errors="ignore") != body:
+            shim.write_bytes(body.encode("utf-8"))
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE) as k:
+            try:
+                cur, kind = winreg.QueryValueEx(k, "Path")
+            except FileNotFoundError:
+                cur, kind = "", winreg.REG_EXPAND_SZ
+            parts = [x for x in cur.split(";") if x and x.rstrip("\\").lower() != str(bindir).lower()]
+            new = ";".join([str(bindir), *parts])
+            if new != cur:
+                winreg.SetValueEx(k, "Path", 0, kind, new)
+                import ctypes
+                ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x1A, 0, "Environment", 2, 2000, None)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def ensure_app():
     """Windows: build the desktop app + shortcuts the first time (and after updates that change the launcher)."""
     import os
     if os.name != "nt" or os.environ.get("WINDMILL_GUI"):
         return
+    ensure_command()
     try:
         from . import gui
         if not gui.app_installed() and gui.LAUNCHER_SRC.exists():
