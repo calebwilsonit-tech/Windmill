@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1 - 2026-11-13 (fix)
+- fix: make the desktop app easy to find and always installable
+- (released automatically from the commit messages)
+
 ## 1.2.0 - 2026-11-13 (minor)
 - feat: desktop app, connectors (MCP plugins), skills, and the Rust testkit
 - (released automatically from the commit messages)
