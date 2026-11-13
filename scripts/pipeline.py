@@ -307,4 +307,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception:  # noqa: BLE001 - show and keep the real error instead of a silent crash
+        import traceback
+        tb = traceback.format_exc()
+        log = Path.home() / ".windmill" / "logs" / "build-crash.log"
+        try:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text(tb, encoding="utf-8")
+        except OSError:
+            pass
+        print("\nWindmill's build step crashed. The error was:\n" + tb[-3000:] + f"\n(saved to {log})", flush=True)
+        sys.exit(3)

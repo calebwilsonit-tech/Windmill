@@ -25,7 +25,9 @@ if sys.stdout is None or sys.stderr is None:
 if os.name == "nt":
     try:
         import ctypes
-        _no_console = not ctypes.windll.kernel32.GetConsoleWindow()
+        # GetConsoleCP() is 0 only when there's no console at all (pythonw). A hidden console (a task the app
+        # runs) is fine: programs started from it share it, keep their output, and don't flash a window.
+        _no_console = ctypes.windll.kernel32.GetConsoleCP() == 0
     except Exception:  # noqa: BLE001
         _no_console = sys.stdout is None
     if _no_console:

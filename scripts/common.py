@@ -31,9 +31,12 @@ def log(msg):
     print(f"\n\033[1;36m[ai-kit]\033[0m {msg}", flush=True)
 
 
+STOPPED = 4  # exit code: stopped on purpose with a message for the user (not a crash)
+
+
 def die(msg):
-    print(f"\033[1;31m[ai-kit] {msg}\033[0m", file=sys.stderr)
-    sys.exit(1)
+    print(f"\033[1;31m[ai-kit] {msg}\033[0m", file=sys.stderr, flush=True)
+    sys.exit(STOPPED)
 
 
 def git(*args, cwd, check=True):

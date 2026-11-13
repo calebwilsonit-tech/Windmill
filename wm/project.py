@@ -402,6 +402,18 @@ def mark(root, line_no, done=True, replace_with=None):
                     "windmill: roadmap update"], cwd=root, capture_output=True)
 
 
+def _save_outside_changes(root, n):
+    """Autopilot needs a clean starting point. Save anything changed outside the build (your edits, files an
+    editor or Windows created) as its own commit instead of stopping with 'uncommitted changes'."""
+    st = subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True)
+    changed = [l for l in st.stdout.splitlines() if l.strip() and not l[3:].startswith(".ai")]
+    if st.returncode == 0 and changed:
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        subprocess.run(["git", "-c", "user.name=Windmill", "-c", "user.email=windmill@localhost", "commit", "-q", "-m",
+                        f"windmill: save changes made before milestone {n}"], cwd=root, capture_output=True)
+        ui.info(f"Saved {len(changed)} changed file(s) first (so the build can be undone cleanly).")
+
+
 def build(root=None):
     root = Path(root or config.project_root())
     ms = milestones(root)
@@ -423,13 +435,19 @@ def build(root=None):
         ui.rule(f"Milestone {done_n + 1}/{len(ms)}")
         print(f"  {task}\n")
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        _save_outside_changes(root, done_n + 1)
         r = subprocess.run([sys.executable, str(config.SCRIPTS / "pipeline.py"), task], cwd=root, env=env)
+        if r.returncode == 4:  # stopped on purpose; its message is printed just above
+            ui.warn("The build stopped (the reason is just above). Fix that, then continue with  windmill build "
+                    "(or the Build button).")
+            return
         if r.returncode not in (0, 2):  # 2 = "verification didn't pass"; anything else = Windmill itself crashed
             ui.warn("Windmill hit an internal error (not a problem with your project). Retrying once...")
             r = subprocess.run([sys.executable, str(config.SCRIPTS / "pipeline.py"), task], cwd=root, env=env)
             if r.returncode not in (0, 2):
-                ui.err("Windmill's build step keeps crashing - that's a Windmill bug, not your project. Run  windmill "
-                       "update  (the fix may already be out), then  windmill build  to continue where you left off.")
+                ui.err("Windmill's build step keeps crashing - that's a Windmill bug, not your project. The error is "
+                       f"above and in {Path.home() / '.windmill' / 'logs' / 'build-crash.log'}. Run  windmill update  "
+                       "(the fix may already be out), then  windmill build  to continue where you left off.")
                 return
         if r.returncode == 0:
             mark(root, line_no)
