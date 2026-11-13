@@ -168,8 +168,37 @@ def _quiet(fn):
         pass
 
 
+NOISE_TOKENS = {"instruct", "it", "chat", "gguf", "hf", "mtp", "latest", "base", "ud", "q4", "q5", "q6", "q8", "k", "m",
+                "s", "l", "xl", "xs", "km", "ks", "f16", "bf16", "mxfp4", "iq4", "q3", "a3b", "a4b", "a22b"}
+
+
+def _tokens(name):
+    t = re.findall(r"[a-z]+\d*(?:\.\d+)?|\d+(?:\.\d+)?b?", Path(name).name.lower().replace(".gguf", ""))
+    return {x for x in t if x not in NOISE_TOKENS and not re.fullmatch(r"q\d.*|\d{5}|of", x)}
+
+
+def same_model(a, b):
+    """'qwen3-coder:30b' (Ollama) == 'Qwen3-Coder-30B-A3B-Instruct' (Hugging Face) == '...-Q5_K_M.gguf'."""
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return False
+    sizes_a, sizes_b = {x for x in ta if re.fullmatch(r"\d+(\.\d+)?b", x)}, {x for x in tb if re.fullmatch(r"\d+(\.\d+)?b", x)}
+    if sizes_a and sizes_b and not sizes_a & sizes_b:
+        return False
+    small, big = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return small <= big
+
+
 def installed_names():
-    return {Path(m["path"]).name.lower() for m in models.discover()}
+    names = set()
+    for m in models.discover():
+        names.add(Path(m["path"]).name.lower())
+        names.add(str(m.get("name", "")).lower())
+    return names
+
+
+def is_installed(rec, have):
+    return any(same_model(rec["name"], h) or same_model(Path(rec["file"]).name, h) for h in have if h)
 
 
 def home_line():
@@ -177,9 +206,9 @@ def home_line():
     c = cached()
     if not c or not c.get("recs"):
         return None
-    have = {n.lower() for n in installed_names()}
+    have = installed_names()
     for r in c["recs"]:
-        if Path(r["file"]).name.lower() not in have:
+        if not is_installed(r, have):
             if not r.get("speed", "").startswith(("fast", "good")):
                 continue  # only nudge toward models that will actually run well here
             return f"new AI model you could try: {r['name']} ({r['gb']} GB, {r['why']}) - see \"Get a new AI model\""
@@ -203,7 +232,7 @@ def menu():
                  f"({hw['ram_gb']:.0f} GB RAM" + (f" + {hw['vram_gb']:.0f} GB GPU" if hw["vram_gb"] else "") + ")."))
     opts = []
     for i, r in enumerate(c["recs"]):
-        tag = ui.green(" installed") if Path(r["file"]).name.lower() in have else ""
+        tag = ui.green(" installed") if is_installed(r, have) else ""
         col = ui.green if r.get("speed", "").startswith(("fast", "good")) else ui.yellow
         opts.append((i, f"{r['name'][:38]:38} {r['gb']:5.1f} GB {r['quant']:10}",
                      f"{col(r.get('speed', ''))}  {r['why']}  [{r['repo'].split('/')[0]}]{tag}"))

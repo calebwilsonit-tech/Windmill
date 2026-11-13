@@ -415,6 +415,13 @@ def build(root=None):
         print(f"  {task}\n")
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         r = subprocess.run([sys.executable, str(config.SCRIPTS / "pipeline.py"), task], cwd=root, env=env)
+        if r.returncode not in (0, 2):  # 2 = "verification didn't pass"; anything else = Windmill itself crashed
+            ui.warn("Windmill hit an internal error (not a problem with your project). Retrying once...")
+            r = subprocess.run([sys.executable, str(config.SCRIPTS / "pipeline.py"), task], cwd=root, env=env)
+            if r.returncode not in (0, 2):
+                ui.err("Windmill's build step keeps crashing - that's a Windmill bug, not your project. Run  windmill "
+                       "update  (the fix may already be out), then  windmill build  to continue where you left off.")
+                return
         if r.returncode == 0:
             mark(root, line_no)
             ui.ok(f"Milestone {done_n + 1} done and verified.")

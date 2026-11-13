@@ -185,7 +185,10 @@ def main():
     (out / "TASK.md").write_text(task, encoding="utf-8")
     log(f"Run folder: {out}\nBase commit: {base[:10]}  (undo all: git reset --hard {base[:10]})")
     if (root / "Cargo.lock").exists():
-        ai_corpus.cmd_deps(root, quiet=True)
+        try:
+            ai_corpus.cmd_deps(root, quiet=True)
+        except Exception as e:  # noqa: BLE001 - dependency references are a bonus; never block the build
+            log(f"(dependency index skipped: {e})")
 
     # ---------------------------------------------------------------- 1. PLAN
     plan_path = out / "PLAN.md"

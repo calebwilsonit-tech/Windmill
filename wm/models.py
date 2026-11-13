@@ -51,8 +51,8 @@ def gguf_meta(path):
                 arch = meta.get("general.architecture")
                 if key in want_general or (arch and key.startswith(arch + ".")):
                     meta[key] = val
-                if arch and key.startswith("tokenizer."):
-                    break  # everything we need comes before the tokenizer
+                if arch and all(f"{arch}.{k}" in meta for k in ("block_count", "context_length", "expert_count")):
+                    break  # have everything (dense models have no expert_count: we read to the end, it's fast)
     except (OSError, struct.error, KeyError):
         return meta or None
     arch = meta.get("general.architecture", "")

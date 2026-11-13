@@ -398,7 +398,7 @@ def want_md(path, cats):
 # ------------------------------------------------------------------ corpus index
 def open_corpus():
     CORPUS.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(CORPUS_DB)
+    db = connect(CORPUS_DB)
     db.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
     row = db.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
     if not row or row[0] != SCHEMA:  # older index layout: rebuild (re-indexing is fast, downloads are kept)
@@ -557,8 +557,42 @@ def find_src(name, version):
     return None
 
 
+def connect(path):
+    """SQLite that waits for other Windmill processes instead of failing with 'database is locked'."""
+    db = sqlite3.connect(path, timeout=120)
+    try:
+        db.execute("PRAGMA journal_mode=WAL")  # readers never block the indexer and vice versa
+    except sqlite3.OperationalError:
+        pass
+    return db
+
+
+class IndexLock:
+    """Only one dependency indexer per project at a time (git hooks can fire several in a row)."""
+
+    def __init__(self, root):
+        self.path = Path(root) / ".ai" / "deps.lock"
+        self.held = False
+
+    def __enter__(self):
+        try:
+            if self.path.exists() and time.time() - self.path.stat().st_mtime > 3600:
+                self.path.unlink()  # stale lock from a crashed run
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            self.held = True
+        except FileExistsError:
+            self.held = False
+        return self
+
+    def __exit__(self, *a):
+        if self.held:
+            self.path.unlink(missing_ok=True)
+
+
 def open_deps(root):
-    db = sqlite3.connect(root / ".ai" / "deps.db")
+    db = connect(root / ".ai" / "deps.db")
     db.execute("CREATE TABLE IF NOT EXISTS crates(id TEXT PRIMARY KEY, items INT)")
     db.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS api USING fts5(
         crate UNINDEXED, version UNINDEXED, path, name, terms, sig, doc, body UNINDEXED,
@@ -567,6 +601,15 @@ def open_deps(root):
 
 
 def cmd_deps(root, quiet=False):
+    (Path(root) / ".ai").mkdir(exist_ok=True)
+    with IndexLock(root) as lock:
+        if not lock.held:
+            log("deps index: another Windmill process is already updating it - skipping.", quiet)
+            return
+        _cmd_deps(root, quiet)
+
+
+def _cmd_deps(root, quiet=False):
     pkgs = lock_packages(root)
     if not pkgs:
         log("No Cargo.lock with registry crates (run `cargo build` or `cargo generate-lockfile` first).", quiet)
@@ -611,6 +654,7 @@ def cmd_deps(root, quiet=False):
                 rows.append((n, v, rel, name, terms, it["sig"], it["doc"], body, it["line"], it["kind"]))
         db.executemany("INSERT INTO api VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
         db.execute("INSERT OR REPLACE INTO crates VALUES (?,?)", (cid, len(rows)))
+        db.commit()  # one crate per transaction: never holds the lock for long
         added += 1
     db.commit()
     total = db.execute("SELECT count(*), sum(items) FROM crates").fetchone()
@@ -623,7 +667,7 @@ def search_deps(root, text, k=12, extra_terms=()):
     terms = query_terms(text) + [t for t in extra_terms if t not in STOP]
     if not dbp.exists() or not terms:
         return []
-    db = sqlite3.connect(dbp)
+    db = connect(dbp)
     direct = direct_deps(root)
     try:
         rows = db.execute(
@@ -670,7 +714,7 @@ def search_corpus(text, k=6, cats=None, include_copyleft=False, min_rel=0.5, bev
     terms = query_terms(text)
     if not CORPUS_DB.exists() or not terms:
         return []
-    db = sqlite3.connect(CORPUS_DB)
+    db = connect(CORPUS_DB)
     try:
         rows = db.execute(
             "SELECT repo, path, name, sig, doc, body, cats, license, role, line, kind, "
@@ -819,7 +863,7 @@ def main():
         print(reference_pack(project_root(), " ".join(args["_pos"])))
     elif cmd == "stats":
         if CORPUS_DB.exists():
-            db = sqlite3.connect(CORPUS_DB)
+            db = connect(CORPUS_DB)
             for r in db.execute("SELECT name, chunks, license, cats FROM repos ORDER BY name"):
                 print(f"{r[0]:24} {r[1]:7} chunks  {r[2]:28} {r[3]}")
             print(f"corpus.db: {CORPUS_DB.stat().st_size / 1e6:.0f} MB")
