@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.4 - 2026-11-13 (fix)
+- fix: build crash "database is locked", MoE models from Ollama, wrong model tip
+- (released automatically from the commit messages)
+
 ## 1.1.3 - 2026-11-13 (fix)
 - fix: recognise wrong llama.cpp downloads and replace them automatically
 - (released automatically from the commit messages)
