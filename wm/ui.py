@@ -14,7 +14,7 @@ for _s in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+COLOR = (sys.stdout.isatty() or bool(os.environ.get("FORCE_COLOR"))) and not os.environ.get("NO_COLOR")
 
 
 def _c(code):

@@ -137,6 +137,11 @@ def apply(tag, src, quiet=False):
         shutil.rmtree(tmp, ignore_errors=True)
         how = "copy"
     _record(old, version.current(), how)
+    try:
+        from . import gui
+        gui.after_update()  # rebuilds Windmill.exe only if the app is installed and its source changed
+    except Exception:  # noqa: BLE001
+        pass
     added = _manifest_names() - before
     if added and (KIT / "corpus" / "corpus.db").exists():
         library_background(["fetch", "--only", ",".join(sorted(added))], then_index=True)

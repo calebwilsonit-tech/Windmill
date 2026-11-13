@@ -1,0 +1,15 @@
+[package]
+name = "windmill-testkit"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "How Windmill builds testers: hidden-test grading, self-tests, property, snapshot, CLI and table-driven tests"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"
+insta = "1"
+assert_cmd = "2"
+predicates = "3"

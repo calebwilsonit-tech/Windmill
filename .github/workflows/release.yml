@@ -23,3 +23,44 @@ jobs:
           python3 scripts/release.py --ci
           git push origin HEAD:main --follow-tags
           git push origin --tags
+
+  # Build the Windows app on a real Windows machine and attach it to the release.
+  app:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Build Windmill.exe and WindmillSetup.exe (C# compiler built into Windows)
+        shell: pwsh
+        run: |
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & $csc /nologo /target:winexe /optimize+ /out:dist\Windmill.exe /win32icon:gui\windmill.ico /r:System.Windows.Forms.dll /r:System.Net.Http.dll launcher\Windmill.cs
+          if ($LASTEXITCODE -ne 0) { throw "Windmill.exe failed to compile" }
+          & $csc /nologo /target:winexe /optimize+ /out:dist\WindmillSetup.exe /win32icon:gui\windmill.ico /r:System.Windows.Forms.dll /r:System.Drawing.dll launcher\WindmillSetup.cs
+          if ($LASTEXITCODE -ne 0) { throw "WindmillSetup.exe failed to compile" }
+          Get-ChildItem dist
+      - name: Smoke test on Windows (install the app the way a user's PC does, start its engine)
+        shell: pwsh
+        run: |
+          python windmill.py app --install
+          if (!(Test-Path bin\Windmill.exe)) { throw "app --install did not produce bin\Windmill.exe" }
+          $p = Start-Process python -ArgumentList "windmill.py app --serve --port 18555 --token t" -PassThru -WindowStyle Hidden
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) { Start-Sleep 1; try { $r = Invoke-WebRequest http://127.0.0.1:18555/health -UseBasicParsing; $ok = $r.StatusCode -eq 200; $r.Content } catch {} }
+          Stop-Process $p.Id -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "the app engine did not start on Windows" }
+          python windmill.py doctor
+      - name: Attach to the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = (Get-Content VERSION).Trim()
+          $notes = python -c "import re,sys; t=open('CHANGELOG.md',encoding='utf-8').read(); m=re.search(r'## $v.*?(?=\n## |\Z)', t, re.S); print((m.group(0) if m else 'Windmill $v') + '\n\nNew here? Download WindmillSetup.exe and run it. Already installed? Windmill updates itself.')"
+          gh release view "v$v" *> $null
+          if ($LASTEXITCODE -ne 0) { gh release create "v$v" --title "Windmill $v" --notes "$notes" }
+          gh release upload "v$v" dist\WindmillSetup.exe dist\Windmill.exe --clobber

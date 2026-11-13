@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windmill</title>
+<link rel="icon" href="/static/icon.png">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <img src="/static/icon.png" alt="" width="26" height="26">
+      <span>Windmill</span>
+      <button class="icon-btn" id="theme-btn" title="Light / dark">◐</button>
+    </div>
+    <button class="primary wide" id="new-chat">＋ New chat</button>
+    <div class="project-card" id="project-card" title="The folder Windmill works in">
+      <div class="label">Project</div>
+      <div class="name" id="project-name">…</div>
+      <div class="kinds" id="project-kinds"></div>
+      <div class="row">
+        <button class="ghost small" id="pick-project">Change…</button>
+        <button class="ghost small" data-task="new" title="Describe an idea - Windmill plans and builds it">New project</button>
+      </div>
+    </div>
+    <input id="chat-search" type="search" placeholder="Search chats…" autocomplete="off">
+    <nav id="chat-list" aria-label="Chats"></nav>
+    <div class="nav-bottom">
+      <button class="nav" data-view="home">⌂ Home</button>
+      <button class="nav" data-view="console">▤ Commands <span class="kbd">Ctrl K</span></button>
+      <button class="nav" data-view="models">◈ AI models</button>
+      <button class="nav" data-view="plugins">⧉ Plugins</button>
+      <button class="nav" data-view="skills">✦ Skills</button>
+      <button class="nav" data-view="settings">⚙ Settings</button>
+      <button class="nav" data-view="updates">⟳ Updates <span id="update-dot" class="dot hidden"></span></button>
+      <div class="version" id="version"></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <div class="title" id="view-title">Windmill</div>
+      <div class="actions" id="quick-actions">
+        <button class="ghost small" data-task="check" title="Build, lint, tests, sloppy-code guard">✓ Check</button>
+        <button class="ghost small" data-task="run" title="Run / open your app">▶ Run</button>
+        <button class="ghost small" data-task="debug" title="Reproduce, find root cause, fix">⚑ Fix a problem</button>
+        <button class="ghost small hidden" id="build-btn" data-task="build" title="Build the roadmap on autopilot">⚙ Build</button>
+        <button class="ghost small hidden" id="android-btn" data-task="android menu" title="Build the .apk / install on your phone">▣ Android</button>
+      </div>
+      <button class="pill" id="model-pill" title="AI model"><span class="dot" id="model-dot"></span><span id="model-name">model</span></button>
+    </header>
+
+    <!-- HOME -->
+    <section class="view" id="view-home">
+      <div class="hero">
+        <img src="/static/icon.png" alt="" width="64" height="64">
+        <h1>What are we building?</h1>
+        <p class="muted">Local AI that builds things - private, offline, checked and fixed before it says "done".</p>
+        <div id="tip" class="tip hidden"></div>
+      </div>
+      <div class="cards">
+        <button class="card" data-action="chat"><b>Chat &amp; build here</b><span>Like Claude Code, in this project</span></button>
+        <button class="card" data-task="new"><b>Start a new project</b><span>Describe your idea - Windmill does the rest</span></button>
+        <button class="card hidden" id="card-build" data-task="build"><b>Continue building</b><span>Autopilot through the roadmap</span></button>
+        <button class="card" data-task="debug"><b>Fix a problem</b><span>Reproduce → root cause → fix</span></button>
+        <button class="card" data-task="run"><b>Run my app</b><span>Open the website / start the app</span></button>
+        <button class="card" data-task="design"><b>Look &amp; feel</b><span>A unique design for this project</span></button>
+        <button class="card" data-task="get-model"><b>Get a new AI model</b><span>Recommended for your PC</span></button>
+        <button class="card" data-task="benchmark"><b>Test how good the AI is</b><span>10 tasks, hidden tests</span></button>
+        <button class="card" data-task="setup"><b>Setup &amp; health</b><span>Install / repair everything</span></button>
+      </div>
+    </section>
+
+    <!-- CHAT -->
+    <section class="view hidden" id="view-chat">
+      <div id="transcript" aria-live="polite"></div>
+      <div id="activity" class="activity hidden"><div class="spinner"></div><span id="activity-text">Working…</span><span id="activity-time" class="muted"></span></div>
+      <div id="composer">
+        <textarea id="input" rows="1" placeholder="Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)"></textarea>
+        <div class="composer-row">
+          <span class="muted small" id="composer-hint">Works in: <b id="composer-project"></b></span>
+          <button class="danger hidden" id="stop-btn">■ Stop</button>
+          <button class="primary" id="send-btn">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONSOLE (every CLI command) -->
+    <section class="view hidden" id="view-console">
+      <div class="console-head">
+        <input id="cmd-input" placeholder="Run any Windmill command, e.g.  benchmark --tasks 01,04   or   library search inventory" autocomplete="off">
+        <button class="primary" id="cmd-run">Run</button>
+        <button class="danger hidden" id="cmd-stop">■ Stop</button>
+      </div>
+      <div class="cmd-chips" id="cmd-chips"></div>
+      <pre id="console" class="console"></pre>
+      <div id="console-choices" class="choices"></div>
+      <div class="console-input hidden" id="console-input-row">
+        <span id="console-prompt" class="muted"></span>
+        <input id="console-input" autocomplete="off">
+        <button class="primary small" id="console-send">Enter</button>
+      </div>
+    </section>
+
+    <!-- MODELS -->
+    <section class="view hidden" id="view-models">
+      <div class="view-actions">
+        <button class="primary" data-task="get-model">Get a new AI model</button>
+        <button class="ghost" data-task="tune">Tune for my GPU</button>
+        <button class="ghost" data-task="benchmark">Run the benchmark</button>
+        <button class="ghost" id="server-toggle">Start / stop model</button>
+      </div>
+      <div id="hw" class="muted"></div>
+      <div id="models-list" class="list"></div>
+      <details><summary>Model server log</summary><pre id="server-log" class="console small"></pre></details>
+    </section>
+
+    <!-- PLUGINS -->
+    <section class="view hidden" id="view-plugins">
+      <p class="muted">Connect Windmill to other apps: browser testing, Blender, Ludo, GitHub, Gmail, Notion, databases… Plugins are
+      <b>MCP connectors</b> - the same system Claude uses. Their tools become available to the AI in every chat.</p>
+      <div class="view-actions">
+        <button class="primary" data-task="connect">Browse connectors</button>
+        <button class="ghost" id="plugin-add-btn">＋ Add manually</button>
+        <button class="ghost" id="plugin-import">Import from Claude Desktop</button>
+      </div>
+      <form id="plugin-form" class="card-form hidden">
+        <label>Name <input name="name" required placeholder="github"></label>
+        <label>Command or URL <input name="command" required placeholder="npx   or   https://example.com/mcp"></label>
+        <label>Arguments (one per line) <textarea name="args" rows="3" placeholder="-y&#10;@modelcontextprotocol/server-github"></textarea></label>
+        <label>Environment (KEY=value, one per line) <textarea name="env" rows="2" placeholder="GITHUB_TOKEN=..."></textarea></label>
+        <div class="row"><button class="primary" type="submit">Save &amp; test</button><button class="ghost" type="button" id="plugin-cancel">Cancel</button></div>
+      </form>
+      <div id="plugins-list" class="list"></div>
+    </section>
+
+    <!-- SKILLS -->
+    <section class="view hidden" id="view-skills">
+      <p class="muted">Skills are folders with a <code>SKILL.md</code> - instructions the AI loads when relevant (same format as Claude's skills).
+      Put them in <code>~/.windmill/skills/&lt;name&gt;/</code>, in a project's <code>.windmill/skills/</code>, or keep using <code>~/.claude/skills/</code>.</p>
+      <div id="skills-list" class="list"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view hidden" id="view-settings">
+      <form id="settings-form" class="settings"></form>
+    </section>
+
+    <!-- UPDATES -->
+    <section class="view hidden" id="view-updates">
+      <div id="update-box"></div>
+    </section>
+  </main>
+</div>
+
+<div id="palette" class="modal hidden" role="dialog" aria-label="Commands">
+  <div class="modal-card">
+    <input id="palette-input" placeholder="Type a command…" autocomplete="off">
+    <div id="palette-list"></div>
+  </div>
+</div>
+<div id="update-modal" class="modal hidden" role="dialog" aria-label="Update available">
+  <div class="modal-card">
+    <h2 id="um-title">Update available</h2>
+    <pre id="um-notes" class="notes"></pre>
+    <div class="row right"><button class="ghost" id="um-later">Later</button><button class="primary" id="um-now">Update now</button></div>
+  </div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

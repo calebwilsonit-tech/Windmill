@@ -239,7 +239,7 @@ def download(url, dest=None):
                 break
             buf.write(chunk)
             done += len(chunk)
-            if total and sys.stdout.isatty():
+            if total and (sys.stdout.isatty() or os.environ.get("WINDMILL_GUI")):
                 pct = done * 100 // total
                 speed = done / max(0.1, time.time() - t0) / 2**20
                 sys.stdout.write(f"\r  {ui.cyan('█' * (pct // 4))}{ui.gray('░' * (25 - pct // 4))} {pct:3d}%  "

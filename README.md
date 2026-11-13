@@ -49,6 +49,75 @@ When it says **"Windmill is ready"**, you're done.
 
 ---
 
+## The desktop app (Windows)
+
+Windmill has a desktop app with everything the command line has, laid out like Claude Desktop:
+- **Chats** in a sidebar, searchable. Replies stream in, and you can watch what Windmill is doing: an
+  **activity bar** ("Running: cargo test…", "Checking the project…"), every command and file edit as a line
+  you can expand to see the output, a collapsible **Thinking** block for models that think out loud,
+  debugger notes, and a **Stop** button. When it needs to ask you something, it asks in the chat.
+- **Project picker** and quick buttons: Check, Run, Fix a problem, Build, Android.
+- **Commands** (`Ctrl+K`): every CLI command runs in a built-in console with colour, live progress, and
+  **menus turned into buttons**. The design picker's colour swatches show as real colours.
+- **AI models**, **Plugins**, **Skills**, **Settings** and **Updates** screens.
+
+**Installing it:**
+- **New PC:** download **`WindmillSetup.exe`** from the latest release on GitHub and run it. It installs Git
+  and Python if needed, downloads Windmill, and creates the app with Desktop and Start-menu shortcuts.
+- **Already using the command line:** nothing to do. The first time Windmill runs on Windows, it builds the
+  app and adds the shortcuts (or run `windmill app --install` any time).
+- Any OS: `windmill app` opens the same app in a browser window.
+
+**One version for everything.** The app and the command line are the same program with the same version
+number. When an update is available, the app asks on start ("Windmill 1.3.0 is available - update now /
+later") and shows what changed. Updating refreshes both, rebuilds `Windmill.exe` if it changed, and restarts
+the app. Command-line-only installs update exactly as before.
+
+**Lightweight:** the app is a small local server plus one app window, about one browser tab of memory. The
+AI uses the same token-saving machinery in the app as in the command line.
+
+## Connecting apps and services (plugins)
+
+Windmill can connect to other apps the same way Claude does: through **MCP connectors**.
+```
+windmill connect                 # featured connectors
+windmill connect gmail           # search the official MCP Registry for any service
+windmill plugins import          # bring over the plugins you set up in Claude Desktop
+windmill plugins list | test <name> | enable | disable | remove
+```
+- **Featured:**
+  - **Browser testing (E2E)** with Playwright (Microsoft): the AI opens your site in a real browser, clicks
+    through it and checks it works.
+  - **Ludo AI:** sprites, animations, 3D models, music and sound effects for games.
+  - **Blender:** build and edit 3D scenes.
+  - **GitHub.**
+  - **Web pages (fetch).**
+- **Anything else** (Gmail, Notion, Slack, Figma, databases…): search the official MCP Registry. It shows
+  who publishes each connector, so only install ones from publishers you trust, since they act on your
+  behalf.
+- Windmill installs what a connector needs to run (Node.js or Python's `uv`) automatically. Keys are asked
+  for once and stored in `~/.windmill/plugins.json`, in the same format as Claude Desktop's config.
+- A connector's tools become available to the AI in every chat, in both the app and the command line. Their
+  descriptions are trimmed so each one adds as few tokens as possible.
+
+## Skills
+
+Folders with a `SKILL.md`: instructions the AI loads when relevant, in the same format as Claude's skills.
+Put them in `~/.windmill/skills/<name>/` or a project's `.windmill/skills/`. Skills in `~/.claude/skills/`
+are picked up too. Windmill ships a **testing** skill. `windmill skills` lists them.
+
+## Building testers (the Windmill testkit)
+
+`library/testkit` is a Rust crate showing every testing pattern Windmill uses, each small, commented, and
+passing `cargo test` and clippy:
+- **Hidden-test grading** with a **self-test** that proves the grader is right (the benchmark's method)
+- **Property-based tests** (proptest), **snapshot tests** (insta), **CLI tests** (assert_cmd), **table-driven tests**
+- **Recipes** for fuzzing, mutation testing, headless Bevy game tests and browser E2E
+
+It's indexed in the library alongside the best Rust testing projects (proptest, insta, cargo-fuzz,
+cargo-mutants, nextest, criterion, fantoccini, thirtyfour, chromiumoxide, wiremock, loom, mockall…). Fetch
+the `testing` category with `windmill library fetch --cats testing`.
+
 ## Using it
 
 Open any terminal (on Windows: press Start, type **Terminal**) and type:
@@ -386,6 +455,10 @@ windmill update [--rollback]  update now / undo the last update
 windmill version              version and update settings
 windmill dev setup            (Windmill developers) release on every commit
 windmill library discover bevy   find every public Bevy project
+windmill app [--install]      the desktop app
+windmill connect [service]    connect apps & services (MCP)
+windmill plugins …            manage connectors
+windmill skills               list skills
 windmill setup                install / repair everything
 windmill doctor               health check
 ```

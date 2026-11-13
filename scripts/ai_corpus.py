@@ -183,6 +183,13 @@ def load_manifest(include_discovered=True):
 def fetch_one(r, copyleft=False, update=False):
     """Download one repo (shallow, big binaries skipped), verify its licence. Returns a log line."""
     dest = CORPUS / "repos" / r["name"]
+    if r.get("local"):  # ships inside Windmill (e.g. the testkit): copy it, refresh on every fetch
+        src = KIT / r["local"]
+        if not src.is_dir():
+            return f"  !! {r['name']}: {src} missing"
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(src, dest, ignore=shutil.ignore_patterns("target"))
+        return f"copied {r['name']} (bundled with Windmill)"
     if dest.exists():
         if not update:
             return None

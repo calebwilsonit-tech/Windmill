@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import checks, config, design, ui
 from .debugger import TAG, Watchdog
-from .llm import LLM, LLMError, est_tokens
+from .llm import LLM, Cancelled, LLMError, est_tokens
 from .sessions import Session
 from .tools import Tools, tool_specs
 
@@ -135,7 +135,20 @@ class Agent:
         self.llm = llm or LLM(self.cfg)
         self.interactive = interactive
         self.p = printer or Printer(self.cfg.get("show_thinking"), quiet=not interactive)
-        self.tools = Tools(self.root, interactive, self.cfg.get("permission", "auto"), ask=self._ask if interactive else None)
+        self.confirm = ui.confirm      # the app replaces these with its own dialogs
+        self.ask_fn = None
+        self.plugins = None
+        if interactive:
+            try:
+                from . import mcp
+                if mcp.load()["mcpServers"]:
+                    self.plugins = mcp.Plugins()
+                    for name, err in self.plugins.errors.items():
+                        ui.warn(f"Plugin '{name}' didn't start: {err[:150]}")
+            except Exception as e:  # noqa: BLE001
+                ui.warn(f"(plugins unavailable: {e})")
+        self.tools = Tools(self.root, interactive, self.cfg.get("permission", "auto"),
+                           ask=self._ask if interactive else None, plugins=self.plugins)
         self.session = session or Session.new(self.root)
         self.critic_on = critic
         self.max_steps = max_steps or self.cfg.get("max_steps", 80)
@@ -157,6 +170,13 @@ class Agent:
         k = checks.kinds(self.root)
         if k:
             extra.append(f"Project type detected: {', '.join(k)}.")
+        try:
+            from . import skills
+            idx = skills.prompt_index(self.root)
+            if idx:
+                extra.append(idx)
+        except Exception:  # noqa: BLE001
+            pass
         return SYSTEM.format(os=f"{platform.system()} {platform.release()}", shell=Tools.shell_name(), root=self.root,
                              date=datetime.date.today().isoformat(), tag=TAG, extra="\n\n".join(extra))
 
@@ -173,6 +193,8 @@ class Agent:
                         "--allow-empty", "-m", "windmill: start"], cwd=self.root, capture_output=True)
 
     def _ask(self, q):
+        if self.ask_fn:
+            return self.ask_fn(q)
         self.p.think_stop()
         self.p.end_text()
         print()
@@ -227,8 +249,8 @@ class Agent:
             self.compact()
             self.p.think_start()
             try:
-                r = self.llm.chat(self.messages, tools=tool_specs(), on_text=self.p.text, on_think=self.p.think)
-            except KeyboardInterrupt:
+                r = self.llm.chat(self.messages, tools=self.tools.specs(), on_text=self.p.text, on_think=self.p.think)
+            except (KeyboardInterrupt, Cancelled):
                 self.p.think_stop()
                 self.p.end_text()
                 self.add({"role": "assistant", "content": "(interrupted by user)"})
@@ -249,6 +271,9 @@ class Agent:
             if r["tool_calls"]:
                 injections = []
                 for c in r["tool_calls"]:
+                    if self.llm.cancel is not None and self.llm.cancel.is_set():
+                        self.add({"role": "tool", "tool_call_id": c["id"], "content": "Stopped by the user."})
+                        continue
                     self.p.tool(c["name"], c["arguments"])
                     try:
                         out = self.tools.call(c["name"], c["arguments"])
@@ -271,8 +296,11 @@ class Agent:
                         self.p.debugger(inj)
                     self.add({"role": "user", "content": "\n\n".join(injections)})
                 steps += 1
+                if self.llm.cancel is not None and self.llm.cancel.is_set():
+                    self.add({"role": "assistant", "content": "(stopped by user)"})
+                    return "(stopped)"
                 if steps >= self.max_steps:
-                    if self.interactive and ui.confirm(f"Windmill has taken {steps} actions on this. Keep going?", True):
+                    if self.interactive and self.confirm(f"Windmill has taken {steps} actions on this. Keep going?", True):
                         steps = 0
                         continue
                     return r["content"] or "(paused after many steps)"

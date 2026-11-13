@@ -24,6 +24,10 @@ COMMANDS = [
     ("apk", "[--debug]", "build the Android app (.apk) for this project"),
     ("models", "", "find the AI models on this computer and choose one"),
     ("get-model", "", "recommended new models for your PC (from Hugging Face, refreshed daily)"),
+    ("plugins", "catalog [service]|list|add|remove|enable|disable|test|import", "connect apps & services (MCP plugins)"),
+    ("connect", "[service]", "browse connectors: browser testing, Blender, Ludo, GitHub, Gmail, Notion..."),
+    ("skills", "", "list the skills the AI can use"),
+    ("app", "[--install]", "open the Windmill desktop app (--install: create the app + shortcuts)"),
     ("server", "start|stop|status|logs", "control the model server (normally automatic)"),
     ("tune", "", "make the model use your GPU as much as safely possible"),
     ("library", "fetch|index|add|search|stats|pack", "the reference library"),
@@ -304,6 +308,49 @@ def benchmark(args):
     bench.run(tuple(m.strip() for m in modes.split(",")), opt("--tasks"), api, int(opt("--max-steps", 50)))
 
 
+def plugins_cmd(args):
+    import json as _json
+    from . import mcp
+    sub = args[0] if args else "list"
+    data = mcp.load()
+    if sub == "list":
+        ui.rule("Plugins (MCP)")
+        for name, spec in data["mcpServers"].items():
+            on = name not in data["disabled"]
+            what = spec.get("url") or " ".join([spec.get("command", "")] + spec.get("args", []))
+            print(f"  {ui.green('on ') if on else ui.dim('off')} {name:20} {ui.dim(what[:80])}")
+        if not data["mcpServers"]:
+            print("  none. Add one:  windmill plugins add <name> <command> [args...]   or   windmill plugins import")
+    elif sub == "add" and len(args) >= 3:
+        name, rest = args[1], args[2:]
+        data["mcpServers"][name] = {"type": "http", "url": rest[0]} if rest[0].startswith("http") else \
+            {"command": rest[0], "args": rest[1:]}
+        mcp.save(data)
+        ok, info = mcp.test(name)
+        (ui.ok if ok else ui.err)(f"{name}: {info}")
+    elif sub == "remove" and len(args) > 1:
+        data["mcpServers"].pop(args[1], None)
+        mcp.save(data)
+        ui.ok(f"Removed {args[1]}.")
+    elif sub in ("enable", "disable") and len(args) > 1:
+        d = set(data["disabled"])
+        (d.discard if sub == "enable" else d.add)(args[1])
+        data["disabled"] = sorted(d)
+        mcp.save(data)
+        ui.ok(f"{args[1]} {sub}d.")
+    elif sub == "test" and len(args) > 1:
+        ok, info = mcp.test(args[1])
+        (ui.ok if ok else ui.err)(info)
+    elif sub in ("catalog", "browse", "connect"):
+        from . import catalog
+        catalog.browse(" ".join(args[1:]) or None)
+    elif sub == "import":
+        n, src = mcp.import_claude_desktop()
+        (ui.ok if src else ui.warn)(f"Imported {n} plugin(s) from {src}" if src else "Claude Desktop's config wasn't found.")
+    else:
+        ui.warn("Usage: windmill plugins list|add <name> <command|url> [args]|remove|enable|disable|test <name>|import")
+
+
 def help_all():
     ui.rule("Commands")
     for c, a, d in COMMANDS:
@@ -350,6 +397,21 @@ def dispatch(argv):
         if not args:
             return ui.warn('Usage: windmill best "what to build" [-n 4]')
         server.ensure() and script("best_of_n.py", args)
+    elif cmd == "plugins":
+        plugins_cmd(args)
+    elif cmd == "connect":
+        plugins_cmd(["catalog", *args])
+    elif cmd == "skills":
+        from . import skills
+        sk = skills.discover(config.project_root())
+        ui.rule("Skills")
+        for s in sk:
+            print(f"  {ui.cyan(s['name'][:28].ljust(28))} {s['description'][:80]}  {ui.dim('[' + s['source'] + ']')}")
+        if not sk:
+            print(f"  none yet. Make one: {config.HOME / 'skills' / '<name>' / 'SKILL.md'}")
+    elif cmd in ("app", "gui"):
+        from . import gui
+        gui.main(args)
     elif cmd in ("get-model", "recommend"):
         from . import recommend
         recommend.menu()
@@ -426,8 +488,27 @@ def dispatch(argv):
         chat(argv)
 
 
+def ensure_app():
+    """Windows: build the desktop app + shortcuts the first time (and after updates that change the launcher)."""
+    import os
+    if os.name != "nt" or os.environ.get("WINDMILL_GUI"):
+        return
+    try:
+        from . import gui
+        cfg = config.load()
+        if not gui.app_installed() and not cfg.get("app_setup_done") and gui.LAUNCHER_SRC.exists():
+            if gui.install(quiet=True):
+                ui.ok("The Windmill desktop app is ready - it's on your Desktop and in the Start menu.")
+            config.set_value("app_setup_done", True)  # try once; `windmill app --install` retries any time
+        else:
+            gui.after_update()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main():
     argv = sys.argv[1:]
+    ensure_app()
     if not argv or argv[0] not in ("update", "version", "--version", "-v", "dev", "release", "check"):
         try:
             from . import update

@@ -13,6 +13,10 @@ class LLMError(Exception):
     pass
 
 
+class Cancelled(Exception):
+    """The user pressed Stop."""
+
+
 def est_tokens(obj):
     s = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
     return int(len(s) / 3.6)
@@ -26,6 +30,7 @@ class LLM:
         self.key, self.model = key, model or "local"
         self.external = bool(base)
         self.usage = {"prompt": 0, "completion": 0}
+        self.cancel = None  # threading.Event set by the app's Stop button
 
     def chat(self, messages, tools=None, temperature=0.6, max_tokens=8192, on_text=None, on_think=None,
              stream=True, extra=None):
@@ -65,6 +70,8 @@ class LLM:
                 self._usage(data)
             else:
                 for raw in resp:
+                    if self.cancel is not None and self.cancel.is_set():
+                        raise Cancelled()
                     line = raw.decode("utf-8", errors="replace").strip()
                     if not line.startswith("data:"):
                         continue

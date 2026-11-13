@@ -47,6 +47,9 @@ SCHEMAS = [
     ("phone", "Android projects: action='build' makes the .apk, 'install' builds+installs+launches it on the "
      "USB-connected phone, 'logs' returns the phone's recent crash/panic/Rust log lines (use after install to "
      "debug crashes).", {"action": "string"}),
+    ("use_skill", "Load one of the user's skills (instructions for how they want something done). See SKILLS in "
+     "your instructions for what exists. Optional file loads an extra file from the skill.",
+     {"name": "string", "file": "string?"}),
     ("ask_user", "Ask the user a plain-language question about WHAT they want (never about how to code it). "
      "Only when you genuinely can't decide yourself.", {"question": "string"}),
 ]
@@ -67,11 +70,12 @@ def tool_specs():
 
 
 class Tools:
-    def __init__(self, root, interactive=True, permission="auto", ask=None):
+    def __init__(self, root, interactive=True, permission="auto", ask=None, plugins=None):
         self.root = Path(root).resolve()
         self.interactive = interactive
         self.permission = permission
         self.ask = ask  # callable(question) -> answer, for interactive sessions
+        self.plugins = plugins
         self.changed = set()  # files edited this task
         self.bg = []
 
@@ -86,7 +90,16 @@ class Tools:
     def rel(self, p):
         return Path(p).resolve().relative_to(self.root).as_posix()
 
+    def specs(self):
+        return tool_specs() + (self.plugins.specs() if self.plugins else [])
+
     def call(self, name, args):
+        if name.startswith("mcp__") and self.plugins and name in self.plugins.tools:
+            try:
+                out = self.plugins.call(name, args)
+            except Exception as e:  # noqa: BLE001
+                out = f"ERROR: plugin call failed: {e}"
+            return out[:MAX_RESULT] + ("\n... (cut)" if len(out) > MAX_RESULT else "")
         fn = getattr(self, "t_" + name, None)
         if not fn:
             return f"ERROR: unknown tool '{name}'. Available: {', '.join(s[0] for s in SCHEMAS)}"
@@ -329,6 +342,10 @@ class Tools:
             return ("Installed and launched. Wait a few seconds, then call phone(action='logs') to check for crashes."
                     if ok else "Install failed - see output.")
         return "ERROR: action must be build, install or logs"
+
+    def t_use_skill(self, name, file=None):
+        from . import skills
+        return skills.load(name, self.root, file)
 
     def t_ask_user(self, question):
         if self.interactive and self.ask:

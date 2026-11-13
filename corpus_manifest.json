@@ -771,6 +771,159 @@
    "paths": [
     "docs"
    ]
+  },
+  {
+   "name": "windmill-testkit",
+   "cats": [
+    "testing",
+    "learning"
+   ],
+   "expect": "MIT",
+   "local": "library/testkit",
+   "url": "",
+   "note": "Windmill's own testing patterns (ships with Windmill)"
+  },
+  {
+   "name": "proptest",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/proptest-rs/proptest"
+  },
+  {
+   "name": "cargo-fuzz",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/rust-fuzz/cargo-fuzz"
+  },
+  {
+   "name": "arbitrary",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/rust-fuzz/arbitrary"
+  },
+  {
+   "name": "assert_cmd",
+   "cats": [
+    "testing",
+    "cli"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/assert-rs/assert_cmd"
+  },
+  {
+   "name": "predicates",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/assert-rs/predicates-rs"
+  },
+  {
+   "name": "insta",
+   "cats": [
+    "testing"
+   ],
+   "expect": "Apache-2.0",
+   "url": "https://github.com/mitsuhiko/insta"
+  },
+  {
+   "name": "cargo-mutants",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT",
+   "url": "https://github.com/sourcefrog/cargo-mutants"
+  },
+  {
+   "name": "nextest",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/nextest-rs/nextest"
+  },
+  {
+   "name": "criterion",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/bheisler/criterion.rs"
+  },
+  {
+   "name": "fantoccini",
+   "cats": [
+    "testing",
+    "web-frontend"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/jonhoo/fantoccini"
+  },
+  {
+   "name": "thirtyfour",
+   "cats": [
+    "testing",
+    "web-frontend"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/stevepryde/thirtyfour"
+  },
+  {
+   "name": "chromiumoxide",
+   "cats": [
+    "testing",
+    "web-frontend"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/mattsse/chromiumoxide"
+  },
+  {
+   "name": "wiremock",
+   "cats": [
+    "testing",
+    "web-backend"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/LukeMathWalker/wiremock-rs"
+  },
+  {
+   "name": "rstest",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/la10736/rstest"
+  },
+  {
+   "name": "loom",
+   "cats": [
+    "testing",
+    "async"
+   ],
+   "expect": "MIT",
+   "url": "https://github.com/tokio-rs/loom"
+  },
+  {
+   "name": "quickcheck",
+   "cats": [
+    "testing"
+   ],
+   "expect": "Unlicense OR MIT",
+   "url": "https://github.com/BurntSushi/quickcheck"
+  },
+  {
+   "name": "mockall",
+   "cats": [
+    "testing"
+   ],
+   "expect": "MIT OR Apache-2.0",
+   "url": "https://github.com/asomers/mockall"
   }
  ]
 }
