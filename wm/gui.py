@@ -478,6 +478,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"running": running, "waiting": waiting, "window": window,
                                "next": NOTES[-1][0] if NOTES else 0,
                                "notes": [] if window else [f"{n[1]}: {n[2]}" for n in new[-3:]]})
+        if path == "/api/update/status":
+            return self._json({**UPDATING, "version": version.current()})
         if path == "/api/models":
             return self._json(models_info())
         if path == "/api/settings":
@@ -618,17 +620,15 @@ class Handler(BaseHTTPRequestHandler):
                 server.stop(quiet=True)
             return self._json({"ok": True})
         if path == "/api/update/apply":
+            if UPDATING.get("step") and not UPDATING.get("done"):
+                return self._json({"ok": True, "started": True})
             info = update_info(force=True)
             if not info["available"]:
                 return self._json({"ok": False, "error": "already up to date"})
-            from . import update
-            src, _ = update.source()
-            ok = update.apply(f"v{info['latest']}", src, quiet=True)
-            if ok:
-                self._json({"ok": True, "restarting": True, "version": version.current()})
-                threading.Thread(target=restart, daemon=True).start()
-                return
-            return self._json({"ok": False, "error": "update failed - see `windmill update` in a terminal"})
+            UPDATING.clear()
+            UPDATING.update(step="Downloading the update…", target=info["latest"], started=time.time())
+            threading.Thread(target=run_update, args=(f"v{info['latest']}",), daemon=True).start()
+            return self._json({"ok": True, "started": True})
         if path == "/api/shutdown":
             self._json({"ok": True})
             threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
@@ -649,15 +649,44 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ------------------------------------------------------------------ lifecycle
+UPDATING = {}
+
+
+def run_update(tag):
+    """In-app update, in the background, with steps the app shows; then restart on the new code."""
+    from . import update
+    try:
+        _log(f"in-app update to {tag} started")
+        src, _ = update.source()
+        UPDATING["step"] = "Installing the update (and rebuilding the app if it changed)…"
+        if not update.apply(tag, src, quiet=True):
+            UPDATING.update(done=True, error="The update couldn't be installed. Open a terminal and run  windmill update  "
+                                             "to see why (details: ~/.windmill/logs/app.log).")
+            _log("in-app update failed")
+            return
+        UPDATING["step"] = "Restarting Windmill…"
+        _log(f"updated to {version.current()} - restarting")
+        restart()
+    except Exception as e:  # noqa: BLE001
+        UPDATING.update(done=True, error=f"Update failed: {e}")
+        _log(f"in-app update error: {e!r}")
+
+
 def restart():
-    """After an update: hand the same port/token to a fresh process running the new code."""
+    """After an update: start a fresh engine on the new code with the same port/token, then exit.
+    (The new process waits for the port to free up; the main thread is held so Python can't quit first.)"""
     time.sleep(0.5)
+    STATE["restarting"] = True
     srv = STATE.get("httpd")
     if srv:
         srv.shutdown()
         srv.server_close()
-    os.execv(sys.executable, [sys.executable, str(config.KIT / "windmill.py"), "app", "--serve", "--port",
-                              str(STATE["port"]), "--token", STATE["token"]])
+    exe = sys.executable
+    kw = {"creationflags": 0x00000200 | 0x08000000} if os.name == "nt" else {"start_new_session": True}
+    subprocess.Popen([exe, str(config.KIT / "windmill.py"), "app", "--serve", "--port", str(STATE["port"]),
+                      "--token", STATE["token"]], cwd=str(config.KIT), stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, **kw)
+    os._exit(0)
 
 
 def free_port():
@@ -679,7 +708,14 @@ def idle_watch():
 
 def serve(port=None, token=None, block=True):
     port, token = port or free_port(), token or secrets.token_urlsafe(24)
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    for attempt in range(60):  # after an update restart the old process may still hold the port for a moment
+        try:
+            httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            if attempt == 59:
+                raise
+            time.sleep(0.5)
     httpd.token = token
     httpd.daemon_threads = True
     STATE.update(port=port, token=token, httpd=httpd, last_beat=time.time())
@@ -689,6 +725,8 @@ def serve(port=None, token=None, block=True):
     threading.Thread(target=idle_watch, daemon=True).start()
     if block:
         httpd.serve_forever()
+        while STATE.get("restarting"):  # restart() is starting the new engine - don't let Python exit under it
+            time.sleep(1)
     else:
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return port, token

@@ -19,6 +19,8 @@ static class WindmillApp
     static string Dir { get { return Path.GetDirectoryName(Application.ExecutablePath); } }
 
     static string Home, Kit, Base, Token;
+    static Mutex trayMutex;
+    static bool swapFailed;
 
     [STAThread]
     static int Main(string[] args)
@@ -33,12 +35,12 @@ static class WindmillApp
 
             Home = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".windmill");
             bool firstTray;
-            var mutex = new Mutex(true, @"Local\WindmillTray", out firstTray);
+            trayMutex = new Mutex(true, @"Local\WindmillTray", out firstTray);
             if (!EnsureEngine(true)) return 4;
             if (!trayOnly) OpenWindow(Base + "?token=" + Token, Home);
             if (!firstTray) return 0;  // another Windmill.exe already shows the tray icon
             RunTray();
-            GC.KeepAlive(mutex);
+            GC.KeepAlive(trayMutex);
             return 0;
         }
         catch (Exception e)
@@ -123,6 +125,8 @@ static class WindmillApp
     // Every 15 s: what's running, anything finished or waiting for an answer? (This also keeps the engine alive.)
     static void Poll()
     {
+        // An update rebuilt Windmill.exe (as Windmill.new.exe): restart the tray on the new version.
+        if (!swapFailed && File.Exists(Path.Combine(Dir, "Windmill.new.exe"))) { Relaunch(); return; }
         string json = Http("GET", "api/tray?since=" + Math.Max(since, 0));
         if (json == null)
         {
@@ -174,6 +178,14 @@ static class WindmillApp
         catch (Exception) { return null; }
     }
 
+    static void Relaunch()
+    {
+        tray.Visible = false;
+        try { trayMutex.ReleaseMutex(); } catch (Exception) { }
+        Process.Start(Application.ExecutablePath, "--tray");  // swaps in Windmill.new.exe, then shows the tray again
+        Application.Exit();
+    }
+
     static void Quit()
     {
         Http("POST", "api/shutdown");
@@ -202,16 +214,21 @@ static class WindmillApp
         string me = Application.ExecutablePath;
         string fresh = Path.Combine(Dir, "Windmill.new.exe");
         string old = Path.Combine(Dir, "Windmill.old.exe");
-        try { if (File.Exists(old)) File.Delete(old); } catch (Exception) { }
-        if (!File.Exists(fresh)) return false;
-        try
+        if (!File.Exists(fresh)) { try { if (File.Exists(old)) File.Delete(old); } catch (Exception) { } return false; }
+        for (int i = 0; i < 20; i++)  // the previous copy may still be closing (tray relaunch) - give it a few seconds
         {
-            File.Move(me, old);
-            File.Move(fresh, me);
-            Process.Start(me, string.Join(" ", args));
-            return true;
+            try
+            {
+                if (File.Exists(old)) File.Delete(old);
+                File.Move(me, old);
+                File.Move(fresh, me);
+                Process.Start(me, string.Join(" ", args));
+                return true;
+            }
+            catch (Exception) { Thread.Sleep(250); }
         }
-        catch (Exception) { return false; }
+        swapFailed = true;
+        return false;
     }
 
     static string FindKit()

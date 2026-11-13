@@ -711,14 +711,23 @@ async function loadUpdates(force) {
 }
 async function applyUpdate() {
   $("#update-modal").classList.add("hidden");
-  toast("Updating Windmill…", 60000);
   const r = await api("/api/update/apply", {});
-  if (!r.ok) return toast(r.error || "Update failed");
-  toast(`Updated to ${r.version} - restarting…`, 60000);
-  for (let i = 0; i < 60; i++) {   // the server restarts on the new code; reload when it's back
+  if (!r.ok) return toast(r.error || "Update failed", 8000);
+  const box = $("#updating"); box.classList.remove("hidden");
+  const say = t => { $("#updating-text").textContent = t; };
+  say("Downloading the update…");
+  const started = Date.now();
+  while (Date.now() - started < 5 * 60 * 1000) {  // show each step; reload once the new version answers
     await new Promise(res => setTimeout(res, 1000));
-    try { const h = await fetch("/health"); if (h.ok) { location.reload(); return; } } catch { }
+    let st = null;
+    try { const h = await fetch("/api/update/status"); if (h.ok) st = await h.json(); } catch { }
+    if (!st) { say("Restarting Windmill…"); continue; }
+    if (st.error) { box.classList.add("hidden"); toast(st.error, 15000); return; }
+    if (!st.step && st.version) {  // a fresh engine (no update in progress): the new version is running
+      say(`Updated to ${st.version} - reloading…`); location.reload(); return; }
+    if (st.step) say(st.step);
   }
+  say("This is taking unusually long. Close Windmill and open it again - the update is probably already installed.");
 }
 async function startupUpdateCheck() {
   const u = await api("/api/update");
