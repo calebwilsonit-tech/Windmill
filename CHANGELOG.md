@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0 - 2026-11-13 (minor)
+- feat: builds and new projects run in a chat (plan, thinking, narration, code being written, questions as buttons), message queue, Projects page, Code library page
+- (released automatically from the commit messages)
+
 ## 1.4.7 - 2026-11-13 (fix)
 - fix: build steps started from the app crashed (they ran on pythonw with nowhere to print); Windows release test now runs tasks the way the app does
 - (released automatically from the commit messages)
