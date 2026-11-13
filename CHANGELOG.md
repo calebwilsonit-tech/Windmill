@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2 - 2026-11-13 (fix)
+- fix: questions pop up as a clean chooser (no terminal text), with a close button; closed questions wait in the corner tray
+- (released automatically from the commit messages)
+
 ## 1.4.1 - 2026-11-13 (fix)
 - fix: in-app updates always restart (no more stuck on 'Updating'), show each step, and the tray icon updates itself
 - (released automatically from the commit messages)
