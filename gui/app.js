@@ -156,7 +156,7 @@ async function openChat(id) {
   for (const m of data.messages) {
     if (m.role === "event") { handleEvent(m.ev, false); continue; }
     cur = { text: null, tool: null, think: null, thought: null };
-    if (m.role === "user") addMsg("user", esc(m.text));
+    if (m.role === "user") addMsg("user", userHtml(m.text, m.attachments));
     else if (m.role === "assistant") addMsg("assistant", md(m.text));
     else if (m.role === "tool") lastTool = Object.assign(addTool(m.name, m.args), { _n: m.name });
     else if (m.role === "result") { setResult(lastTool, lastTool?._n, m.text); lastTool = null; }
@@ -318,16 +318,22 @@ function sendQueued() {
 }
 
 async function send() {
-  const text = $("#input").value.trim();
-  if (!text) return;
+  let text = $("#input").value.trim();
+  const files = S.attach.filter(a => a.ready);
+  if (S.attach.some(a => !a.ready && !a.error)) return toast("Still uploading…");
+  if (!text && !files.length) return;
+  if (!text) text = files.length === 1 ? "(see the attached file)" : "(see the attached files)";
   $("#input").value = ""; autosize();
-  if (S.busy) { (S.queue[S.chat] = S.queue[S.chat] || []).push(text); renderQueue(); return; }
-  sendText(text);
+  if (S.busy && !files.length) { (S.queue[S.chat] = S.queue[S.chat] || []).push(text); renderQueue(); return; }
+  if (S.busy) return toast("Wait for the reply, then send the files.");
+  S.attach = []; renderAttach();
+  sendText(text, files.map(f => f.info));
 }
-async function sendText(text) {
+async function sendText(text, files = []) {
   if (!S.chat) { const r = await api("/api/chats", {}); S.chat = r.id; show("chat"); $("#transcript").innerHTML = ""; }
-  addMsg("user", esc(text));
-  const r = await api(`/api/chats/${S.chat}/send`, { text, role: chatRole() });
+  addMsg("user", userHtml(text, files));
+  const r = await api(`/api/chats/${S.chat}/send`, { text, role: chatRole(), model: S.chatModel[S.chat] || null,
+    attachments: files.map(f => f.name) });
   if (r.error) { toast(r.error); return; }
   setBusy(true);
   listen(r.since);
@@ -1094,3 +1100,81 @@ function renderRole() {
 }
 $("#role-btn").onclick = () => { S.roles[S.chat] = chatRole() === "chat" ? "code" : "chat"; renderRole(); };
 setInterval(renderRole, 1000);
+
+
+// ---------------------------------------------------------------- attachments (files, photos; the phone app adds the camera)
+S.attach = [];
+function userHtml(text, files) {
+  const att = (files || []).map(f => f.kind === "image"
+    ? `<a href="${esc(f.url)}" target="_blank" rel="noopener"><img class="att-img" src="${esc(f.url)}" alt="${esc(f.name)}"></a>`
+    : `<a class="att-file" href="${esc(f.url)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a>`).join("");
+  return (att ? `<div class="att-list">${att}</div>` : "") + esc(text || "");
+}
+function renderAttach() {
+  const row = $("#attach-row");
+  row.classList.toggle("hidden", !S.attach.length);
+  row.innerHTML = S.attach.map((a, i) => `<div class="att-chip${a.error ? " bad" : ""}" title="${esc(a.error || a.file.name)}">
+    ${a.preview ? `<img src="${a.preview}" alt="">` : `<span class="att-ico">📄</span>`}
+    <span class="att-name">${esc(a.file.name)}</span>${a.ready ? "" : a.error ? " ⚠" : `<span class="spinner tiny"></span>`}
+    <button class="icon-btn" data-rm="${i}" title="Remove">✕</button></div>`).join("");
+  $$("#attach-row [data-rm]").forEach(b => b.onclick = () => { S.attach.splice(+b.dataset.rm, 1); renderAttach(); });
+}
+async function addFiles(list) {
+  if (!list || !list.length) return;
+  if (!S.chat) { const r = await api("/api/chats", {}); S.chat = r.id; show("chat"); $("#transcript").innerHTML = ""; renderRole(); }
+  for (const file of list) {
+    const a = { file, ready: false, preview: file.type.startsWith("image/") ? URL.createObjectURL(file) : null };
+    S.attach.push(a); renderAttach();
+    try {
+      const r = await fetch(`/api/chats/${S.chat}/upload`, { method: "POST", body: file,
+        headers: { "X-Filename": encodeURIComponent(file.name || "photo.jpg"), "Content-Type": file.type || "application/octet-stream" } });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || `upload failed (${r.status})`);
+      a.info = j; a.ready = true;
+    } catch (e) { a.error = e.message; toast(e.message, 6000); }
+    renderAttach();
+  }
+}
+$("#attach-btn").onclick = () => $("#file-input").click();
+$("#file-input").onchange = e => { addFiles([...e.target.files]); e.target.value = ""; };
+$("#input").addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addFiles(files.map((f, i) => f.name && f.name !== "image.png" ? f
+    : new File([f], `pasted-${Date.now()}-${i}.${(f.type.split("/")[1] || "png")}`, { type: f.type }))); }
+});
+$("#composer").addEventListener("dragover", e => { e.preventDefault(); $("#composer").classList.add("drop"); });
+$("#composer").addEventListener("dragleave", () => $("#composer").classList.remove("drop"));
+$("#composer").addEventListener("drop", e => { e.preventDefault(); $("#composer").classList.remove("drop"); addFiles([...e.dataTransfer.files]); });
+
+// ---------------------------------------------------------------- the model picker in the message box (per chat)
+S.chatModel = {};
+const shortName = n => (n || "").replace(/[-_.](i?q\d\w*|ud-\w+|f16|bf16)$/i, "").replace(/-gguf$/i, "");
+function renderModelBtn() {
+  const b = $("#model-btn");
+  b.classList.toggle("hidden", !!S.chatBuild);
+  const pick = S.chatModel[S.chat];
+  const name = pick ? (S.modelNames || {})[pick] : chatRole() === "chat" ? (S.state.chat_model || S.state.model) : S.state.model;
+  b.textContent = "◈ " + (shortName(name) || "model") + " ▾";
+}
+setInterval(renderModelBtn, 1000);
+$("#model-btn").onclick = async e => {
+  const btn = e.currentTarget;  // (the event forgets its button once we await below)
+  const pop = $("#model-pop");
+  if (!pop.classList.contains("hidden")) return pop.classList.add("hidden");
+  const d = await api("/api/models");
+  S.modelNames = Object.fromEntries((d.models || []).map(m => [m.path, m.name]));
+  const pick = S.chatModel[S.chat];
+  const def = chatRole() === "chat" ? (d.chat_model || S.state.model) : S.state.model;
+  pop.innerHTML = `<div class="pop-sec"><div class="label">AI model for this chat</div>
+    <button class="pop-item${pick ? "" : " on"}" data-m=""><b>Default</b><small>${esc(shortName(def) || "")} - ${chatRole() === "chat" ? "your chat model" : "your coding model"}</small></button>` +
+    (d.models || []).map(m => `<button class="pop-item${pick === m.path ? " on" : ""}" data-m="${esc(m.path)}"><b>${esc(shortName(m.name))}
+      ${m.selected ? '<span class="badge">coding</span>' : ""}${m.chat ? '<span class="badge chat">chat</span>' : ""}${m.vision ? '<span class="badge" title="Can see pictures">👁</span>' : ""}</b>
+      <small>${m.size_gb} GB · ${esc(m.why || "")}</small></button>`).join("") +
+    `<div class="muted small" style="padding:6px 8px">One model is loaded at a time - switching takes about a minute. Builds always use the coding model.</div></div>`;
+  $$("#model-pop [data-m]").forEach(x => x.onclick = () => { S.chatModel[S.chat] = x.dataset.m || undefined; pop.classList.add("hidden"); renderModelBtn(); });
+  pop.classList.remove("hidden");
+  const r = btn.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";
+  pop.style.top = Math.max(8, r.top - pop.offsetHeight - 6) + "px";
+};
+document.addEventListener("mousedown", e => { if (!e.target.closest("#model-pop, #model-btn")) $("#model-pop").classList.add("hidden"); });

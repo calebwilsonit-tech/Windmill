@@ -86,9 +86,13 @@
       <div id="activity" class="activity hidden"><div class="spinner"></div><span id="activity-text">Working…</span><span id="activity-time" class="muted"></span></div>
       <div id="queue" class="queue hidden" aria-label="Queued messages"></div>
       <div id="composer">
+        <div id="attach-row" class="attach-row hidden"></div>
+        <input type="file" id="file-input" multiple hidden>
         <textarea id="input" rows="1" placeholder="Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)"></textarea>
         <div class="composer-row">
-          <button class="folder-chip hidden" id="role-btn" type="button"></button><button class="folder-chip" id="composer-folder" title="Change the folder / GitHub repo Windmill works in">📁 <b id="composer-project"></b> ▾</button><span class="spacer"></span>
+          <button class="icon-btn attach-btn" id="attach-btn" type="button" title="Attach files or photos (or paste / drop them here)">📎</button>
+          <button class="folder-chip hidden" id="role-btn" type="button"></button>
+          <button class="folder-chip" id="model-btn" type="button" title="Which AI model this chat uses"></button><button class="folder-chip" id="composer-folder" title="Change the folder / GitHub repo Windmill works in">📁 <b id="composer-project"></b> ▾</button><span class="spacer"></span>
           <button class="danger hidden" id="stop-btn">■ Stop</button>
           <button class="primary" id="send-btn">Send</button>
         </div>
@@ -327,6 +331,7 @@
 <div id="updating" class="modal hidden" role="alertdialog" aria-label="Updating">
   <div class="modal-card row"><div class="spinner"></div><div><b>Updating Windmill</b><div class="muted small" id="updating-text"></div></div></div>
 </div>
+<div id="model-pop" class="popover hidden" role="menu" aria-label="AI model for this chat"></div>
 <div id="drawer-shade" class="drawer-shade"></div>
 <div id="toast" class="toast hidden"></div>
 <script src="/static/app.js"></script>

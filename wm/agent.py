@@ -289,9 +289,32 @@ class Agent:
         return ("\n\n[Windmill already opened the links in this message - here is what they contain. Use it.]\n\n"
                 + "\n\n---\n\n".join(parts))
 
-    def send(self, text):
-        """Handle one user message until the model is done (or stuck). Returns final text."""
-        self.add({"role": "user", "content": text + self.open_links(text)})
+    def send(self, text, images=(), display=None, attachments=None):
+        """Handle one user message until the model is done (or stuck). Returns final text.
+        images: [(name, data URL)] sent to the model with this message only; afterwards the chat history keeps a short
+        note instead, so a picture isn't paid for again on every later turn. display/attachments: what the chat window
+        shows (the message as typed + file chips) when the full text includes attached documents."""
+        full = text + self.open_links(display if display is not None else text)
+        notes = "".join(f"\n[picture attached: {n} - described in your reply above]" for n, _ in images)
+        stored = {"role": "user", "content": full + notes}
+        if display is not None:
+            stored["display"] = display
+        if attachments:
+            stored["attachments"] = attachments
+        if images:
+            self.messages.append({"role": "user", "content": [{"type": "text", "text": full}] + [
+                {"type": "image_url", "image_url": {"url": u}} for _, u in images]})
+            self.session.add(stored)
+            try:
+                return self._run(text)
+            finally:  # swap the picture for the note in the history (token-friendly)
+                for i, m in enumerate(self.messages):
+                    if isinstance(m.get("content"), list) and m.get("role") == "user":
+                        self.messages[i] = {"role": "user", "content": full + notes}
+        self.add(stored)
+        return self._run(text)
+
+    def _run(self, text):
         wd = Watchdog(self.root, self.llm, self.tools, self.interactive, log=self.p.note)
         self.tools.changed = set()
         steps, critic_rounds, gated_since_change = 0, 0, False

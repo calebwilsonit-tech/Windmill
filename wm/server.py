@@ -69,6 +69,9 @@ def build_cmd(binary, model, hw, cfg):
            "--jinja", "--host", "127.0.0.1", "--port", str(cfg["port"])]
     if p.get("cpu_moe"):
         cmd += ["--n-cpu-moe", str(p["cpu_moe"])]
+    mm = models.mmproj_for(model["path"])
+    if mm:  # the model can see pictures
+        cmd += ["--mmproj", mm]
     return cmd, p
 
 
@@ -162,8 +165,14 @@ def stop(quiet=False):
 BUSY = config.HOME / "model-busy.json"
 
 
-def role_cfg(cfg, role):
-    """The settings to run the model for a role ('code' or 'chat')."""
+def role_cfg(cfg, role, model_path=None):
+    """The settings to run the model for a role ('code' or 'chat'), or for a model a chat picked itself."""
+    if model_path and Path(model_path).exists():
+        if model_path == cfg.get("model_path"):
+            return cfg
+        if model_path == cfg.get("chat_model_path"):
+            return role_cfg(cfg, "chat")
+        return {**cfg, "model_path": model_path, "model_name": Path(model_path).stem, "cpu_moe": None, "ngl": None}
     if role == "chat" and cfg.get("chat_model_path") and Path(cfg["chat_model_path"]).exists() \
             and cfg["chat_model_path"] != cfg.get("model_path"):
         return {**cfg, "model_path": cfg["chat_model_path"], "model_name": cfg.get("chat_model_name"),
@@ -226,11 +235,11 @@ def loaded_path():
     return parts[2] if len(parts) > 2 else None
 
 
-def ensure(cfg=None, role="code"):
+def ensure(cfg=None, role="code", model_path=None):
     """Make sure the model for this kind of work is running. Switches models only when nothing is using the other one
     (then this work simply uses the loaded model - e.g. a chat during a build uses the coding model)."""
     cfg = cfg or config.load()
-    want = role_cfg(cfg, role)
+    want = role_cfg(cfg, role, model_path)
     up = health(cfg)
     if up:
         have = loaded_path()
@@ -247,7 +256,7 @@ def ensure(cfg=None, role="code"):
             ui.info("(the other model is busy with " + ("a build" if others[0]["role"] == "code" else "a chat")
                     + " - using it for this too)")
             return True
-        ui.info("Switching to the " + ("chat" if role == "chat" else "coding") + " model (about a minute)...")
+        ui.info(f"Switching to {want.get('model_name') or Path(want['model_path']).stem} (about a minute)...")
         stop(quiet=True)
     if not cfg.get("auto_start_server", True):
         ui.err("Model server is not running. Start it with:  windmill server start")

@@ -250,8 +250,73 @@ def menu():
     for f in files:
         url = f"https://huggingface.co/{r['repo']}/resolve/main/{urllib.parse.quote(f)}"
         download(url, config.KIT / "models" / Path(f).name)
+    get_mmproj(r["repo"], config.KIT / "models" / Path(files[0]).name)
     found = [x for x in models.discover() if Path(x["path"]).name == Path(files[0]).name]
     if found:
-        from .setup import select
-        select(found[0])
+        use_for(found[0])
+
+
+def use_for(m):
+    """After a download: what is this model for? (Before, a new model always replaced the coding model.)"""
+    from .setup import select
+    k = ui.menu(f"Use {m['name']} for…", [
+        ("chat", "Chat", "everyday chats: writing, questions"),
+        ("code", "Coding", "builds, fixes and Code chats"),
+        ("both", "Both", "one model for everything"),
+        ("none", "Not now", "it stays installed - pick it later in AI models")], allow_back=False)
+    if k in ("code", "both"):
+        select(m)
+    if k in ("chat", "both"):
+        config.set_value("chat_model_path", None if k == "both" else m["path"])
+        config.set_value("chat_model_name", None if k == "both" else m["name"])
+        ui.ok(f"Chats now use {m['name']}." if k == "chat" else "")
+    if k in ("code", "both"):
         ui.info("Tip: run  windmill benchmark  to see how it compares with your previous model.")
+
+
+def get_mmproj(repo, model_path):
+    """Download the model's vision adapter (lets it see pictures) if its repo has one. Saved as <model>.mmproj.gguf."""
+    from .server import download
+    from .setup import hf_get
+    try:
+        files = [f.get("path", "") for f in hf_get(f"https://huggingface.co/api/models/{repo}/tree/main")]
+    except Exception:  # noqa: BLE001
+        return None
+    mm = [f for f in files if "mmproj" in f.lower() and f.endswith(".gguf")]
+    if not mm:
+        return None
+    best = sorted(mm, key=lambda f: (0 if "f16" in f.lower() and "bf16" not in f.lower() else 1 if "bf16" in f.lower() else 2, f))[0]
+    out = Path(model_path).with_name(re.sub(r"(-0000\d-of-0000\d)?\.gguf$", "", Path(model_path).name) + ".mmproj.gguf")
+    ui.info("Downloading its vision adapter (so it can see pictures)...")
+    try:
+        download(f"https://huggingface.co/{repo}/resolve/main/{urllib.parse.quote(best)}", out)
+        return str(out)
+    except Exception as e:  # noqa: BLE001
+        ui.warn(f"(couldn't get the vision adapter: {e})")
+        return None
+
+
+def find_mmproj_online(model_path):
+    """For a model you already have: find the Hugging Face repo with this exact file and fetch its vision adapter."""
+    from .setup import hf_get
+    name = Path(model_path).name
+    stem = re.sub(r"[-_.](i?q\d\w*|f16|bf16|ud-.*)$", "", re.sub(r"(-0000\d-of-0000\d)?\.gguf$", "", name), flags=re.I)
+    try:
+        repos = hf_get("https://huggingface.co/api/models?" + urllib.parse.urlencode(
+            {"search": stem, "filter": "gguf", "sort": "downloads", "limit": 12}))
+    except Exception:  # noqa: BLE001
+        return None
+    for rp in repos:
+        try:
+            files = [f.get("path", "") for f in hf_get(f"https://huggingface.co/api/models/{rp['id']}/tree/main")]
+        except Exception:  # noqa: BLE001
+            continue
+        if name in files or any(Path(f).name == name for f in files):
+            return get_mmproj(rp["id"], model_path)
+    # the adapter depends on the model, not on how it was compressed - the same model's repo is fine
+    for rp in repos:
+        if stem.lower() in rp["id"].lower():
+            got = get_mmproj(rp["id"], model_path)
+            if got:
+                return got
+    return None

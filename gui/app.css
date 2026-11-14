@@ -200,6 +200,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .folder-chip:hover { border-color: var(--accent); color: var(--text); }
 .folder-chip b { color: var(--text); font-weight: 600; }
 .spacer { flex: 1; }
+.composer-row { flex-wrap: wrap; row-gap: 6px; }
+.attach-btn { font-size: 18px; width: 36px; height: 36px; }
+#model-btn { margin-right: 6px; color: var(--text); }
+.attach-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.att-chip { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 4px 4px 6px; font-size: 12.5px; max-width: 240px; }
+.att-chip.bad { border-color: var(--bad); }
+.att-chip img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; }
+.att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-list { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.att-img { max-width: 220px; max-height: 220px; border-radius: 10px; display: block; }
+.att-file { display: inline-block; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font-size: 13px; color: var(--text); text-decoration: none; }
+#composer.drop #input { border-color: var(--accent); background: var(--accent-soft); }
+.pop-item.on { background: var(--accent-soft); }
+#model-pop { width: min(380px, calc(100vw - 16px)); }
 #role-btn { margin-right: 6px; color: var(--text); }
 #role-btn.code { border-color: var(--accent); }
 .badge.chat { background: var(--accent-soft); color: var(--accent); }
@@ -301,6 +315,12 @@ a.ghost.btn-link { border: 1px solid var(--line); color: var(--text); }
   #composer { padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); }
   #input { font-size: 16px; }  /* 16px stops phones zooming into the box */
   .folder-chip { max-width: 48vw; }
+  .composer-row { flex-wrap: nowrap; gap: 4px; }
+  #composer-folder b, #composer-folder { font-size: 0; }
+  #composer-folder::before { content: "📁"; font-size: 16px; }
+  #model-btn { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 0; }
+  #role-btn { margin-right: 0; }
+  #send-btn, #stop-btn { padding: 8px 14px; }
   .queue { padding: 6px 10px 0; }
   .hero { padding: 18px 0 14px; } .hero h1 { font-size: 24px; }
   .cards { grid-template-columns: 1fr 1fr; gap: 8px; }

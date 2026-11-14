@@ -55,6 +55,43 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(true);
         CookieManager.getInstance().setAcceptCookie(true);
         web.addJavascriptInterface(new Bridge(), "WindmillApp");
+        // 📎 in the chat: Android's picker for files and photos, with "take a photo" (the phone's camera app) offered too
+        web.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<Uri[]> cb, FileChooserParams params) {
+                if (fileCb != null) fileCb.onReceiveValue(null);
+                fileCb = cb;
+                Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
+                pick.addCategory(Intent.CATEGORY_OPENABLE);
+                pick.setType("*/*");
+                pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                Intent chooser = Intent.createChooser(pick, "Attach");
+                cameraUri = null;
+                if (Build.VERSION.SDK_INT >= 29) {  // the photo is saved in Pictures/Windmill, then attached
+                    try {
+                        android.content.ContentValues v = new android.content.ContentValues();
+                        v.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "windmill-" + System.currentTimeMillis() + ".jpg");
+                        v.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                        v.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Windmill");
+                        cameraUri = getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+                        Intent cam = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+                        cam.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, cameraUri);
+                        cam.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                        chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cam});
+                    } catch (Exception ignored) {
+                        cameraUri = null;
+                    }
+                }
+                try {
+                    startActivityForResult(chooser, PICK_FILES);
+                } catch (Exception e) {
+                    fileCb.onReceiveValue(null);
+                    fileCb = null;
+                    return false;
+                }
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
@@ -206,6 +243,35 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static final int PICK_FILES = 7;
+    private android.webkit.ValueCallback<Uri[]> fileCb;
+    private Uri cameraUri;
+
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != PICK_FILES || fileCb == null) return;
+        Uri[] picked = null;
+        boolean usedCamera = false;
+        if (result == RESULT_OK) {
+            if (data != null && data.getClipData() != null) {
+                picked = new Uri[data.getClipData().getItemCount()];
+                for (int i = 0; i < picked.length; i++) picked[i] = data.getClipData().getItemAt(i).getUri();
+            } else if (data != null && data.getData() != null) {
+                picked = new Uri[]{data.getData()};
+            } else if (cameraUri != null) {  // the camera wrote the photo to cameraUri
+                picked = new Uri[]{cameraUri};
+                usedCamera = true;
+            }
+        }
+        if (!usedCamera && cameraUri != null) {  // no photo taken: remove the empty gallery entry
+            try { getContentResolver().delete(cameraUri, null, null); } catch (Exception ignored) { }
+        }
+        fileCb.onReceiveValue(picked);
+        fileCb = null;
+        cameraUri = null;
     }
 
     @Override

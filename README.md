@@ -457,7 +457,13 @@ You can use a second model for everyday chats (rewriting an essay, asking questi
 - Each chat has a **💬 Chat / 🛠 Code** switch under the message box. **Chat** (the default for new chats) is a
   helpful assistant for questions and writing: no project tools, no plugins, only web search and opening links.
   **Code** is the builder, with tools, plugins and checks. "Build in this project" on Home opens a Code chat.
-- Plugins (Blender, etc.) only start when the AI actually uses one of their tools.
+- Plugins (Blender, etc.) never start by themselves; they launch only when the AI actually needs one of their tools.
+- **Model picker** in the message box (◈): pick any installed model for a chat. 👁 marks models that can see pictures.
+- **Attachments** (📎, paste, or drag and drop; on the phone also **Take photo**): documents (text, code, csv, json,
+  Word .docx, PDF) are read into the message, and photos are shown to models that can see. Windmill fetches Gemma 4's
+  *vision adapter* by itself the first time. A photo is sent with its own message only; after that the chat history
+  keeps a one-line note, so pictures don't cost tokens again on every turn.
+- After **Get a new AI model**, Windmill asks what it's for: Chat, Coding, Both, or Not now.
 - An idle model uses essentially no processor or graphics card; it only holds memory. After
   `unload_after_minutes` unused (default 30, in Settings) Windmill unloads it so the memory is free too.
 

@@ -123,9 +123,10 @@ class ChatRun:
         ev.wait(3600)
         return self.answers.pop(qid, [None, ""])[1]
 
-    def send(self, text, role=None):
+    def send(self, text, role=None, model=None, files=()):
         """role/mode: "chat" (a general assistant: web only, no project tools or plugins) or "code" (the builder).
-        Chat uses the chat model if one is set, otherwise the one model you have."""
+        model: a model this chat picked (else: the chat model for chats if set, the coding model for code).
+        files: names of attachments uploaded for this message."""
         if self.busy:
             return False
         self.busy = True
@@ -135,19 +136,32 @@ class ChatRun:
 
         def work():
             try:
-                from . import server
-                want = server.role_cfg(cfg, mode)
+                from . import attachments, models, server
+                full, images, shown = attachments.build(self.sid, files, text) if files else (text, [], [])
+                want = server.role_cfg(cfg, mode, model)
+                name = want.get("model_name") or Path(want.get("model_path") or "model").stem
+                if images and want.get("model_path") and not models.mmproj_for(want["model_path"]):
+                    self.push({"type": "note", "text": f"{name} needs its vision adapter to see pictures - looking for it (one-time download)..."})
+                    from .recommend import find_mmproj_online
+                    if find_mmproj_online(want["model_path"]):
+                        server.stop(quiet=True)  # restart with the adapter
+                    else:
+                        self.push({"type": "warn", "text": f"{name} can't see pictures. The picture was saved, but the AI "
+                                                           "can't look at it - pick a model that can (e.g. Gemma 4) in the "
+                                                           "model menu under the message box."})
+                        full += "".join(f"\n[The user attached a picture ({n}) but this model can't see images - say so.]"
+                                        for n, _ in images)
+                        images = []
                 have = server.loaded_path()
                 if not server.health(cfg) or (have and want.get("model_path") and
                                               os.path.normcase(have) != os.path.normcase(want["model_path"])):
-                    name = want.get("model_name") or Path(want.get("model_path") or "model").stem
                     self.push({"type": "note", "text": f"Loading the AI model ({name}) - can take a minute..."})
-                if not server.ensure(cfg, role=mode):
+                if not server.ensure(cfg, role=mode, model_path=model):
                     self.push({"type": "error", "text": "The AI model couldn't start. Open Setup > Fix."})
                     return
                 agent = self.ensure_agent(mode)
                 with server.hold(mode):
-                    final = agent.send(text)
+                    final = agent.send(full, images=images, display=text if files else None, attachments=shown or None)
                 self.push({"type": "final", "text": final or ""})
                 note("Windmill replied", (final or "Done.").strip().splitlines()[0][:180] if (final or "").strip() else "Done.")
             except Exception as e:  # noqa: BLE001
@@ -519,7 +533,7 @@ def chat_messages(sid):
             if c.startswith("[WINDMILL DEBUGGER]"):
                 out.append({"role": "debugger", "text": c.replace("[WINDMILL DEBUGGER]", "").strip()[:2000]})
             elif not c.startswith("[WINDMILL SUMMARY"):
-                out.append({"role": "user", "text": c})
+                out.append({"role": "user", "text": m.get("display", c), "attachments": m.get("attachments") or []})
         elif m["role"] == "assistant":
             if m.get("content"):
                 out.append({"role": "assistant", "text": m["content"]})
@@ -552,7 +566,8 @@ def models_info():
     for m in models.discover(cfg):
         tag, why = models.fit(m, hw)
         out.append({**m, "fit": tag, "why": why, "selected": m["path"] == cfg.get("model_path"),
-                    "chat": m["path"] == cfg.get("chat_model_path"), "bench": scores.get(m["name"])})
+                    "chat": m["path"] == cfg.get("chat_model_path"), "bench": scores.get(m["name"]),
+                    "vision": bool(models.mmproj_for(m["path"]))})
     return {"models": out, "hw": hw, "chat_model": cfg.get("chat_model_name") if cfg.get("chat_model_path") else None,
             "unload_after_minutes": cfg.get("unload_after_minutes", 30)}
 
@@ -812,6 +827,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._sse(t, int(q.get("since", ["0"])[0])) if t else self._json({"error": "no task"}, 404)
         if path == "/api/phone" and not self._phone():
             return self._json(phone_info())
+        m = re.match(r"^/api/uploads/([0-9a-f]+)/(.+)$", path)
+        if m:
+            from . import attachments
+            f = attachments.path_of(m.group(1), urllib.parse.unquote(m.group(2)))
+            if not f:
+                return self._json({"error": "not found"}, 404)
+            data = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path == "/api/setup/check":  # first start: what's missing (quiet, nothing is installed)
             from . import setup
             return self._json(setup.components())
@@ -893,6 +922,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "forbidden"}, 403)
         STATE["last_beat"] = time.time()
         path = urllib.parse.urlparse(self.path).path
+        m = re.match(r"^/api/chats/([0-9a-f]+)/upload$", path)
+        if m:  # a file or photo for the next message (raw bytes; name in X-Filename)
+            from . import attachments
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > attachments.MAX_BYTES:
+                return self._json({"error": f"That file is too big - the limit is {attachments.MAX_BYTES // 2**20} MB."}, 413)
+            data = self.rfile.read(n)
+            try:
+                return self._json(attachments.save(m.group(1), urllib.parse.unquote(self.headers.get("X-Filename") or "file"), data))
+            except ValueError as e:
+                return self._json({"error": str(e)}, 413)
         b = self._body()
         if path == "/api/beat":
             if b.get("visible"):
@@ -938,7 +978,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self._json({"error": "no chat"}, 404)
                     run = CHATS[sid] = ChatRun(sid, s.project if Path(s.project).is_dir() else str(project()))
             if act == "send":
-                ok = run.send(b.get("text", ""), b.get("role"))
+                ok = run.send(b.get("text", ""), b.get("role"), b.get("model"), b.get("attachments") or [])
                 return self._json({"ok": ok, "since": len(run.events)} if ok else {"error": "still working"}, 200 if ok else 409)
             if act == "stop":
                 run.cancel.set()

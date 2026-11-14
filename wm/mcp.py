@@ -212,6 +212,12 @@ class Plugins:
                 for t in cache[name]["tools"]:
                     self.tools[f"mcp__{safe(name)}__{safe(t['name'])}"[:64]] = (name, t)
                 continue
+            if lazy:  # never seen: don't start it just to learn its tools - offer one "start it" tool instead
+                self.specs_by[name] = spec
+                self.tools[f"mcp__{safe(name)}__start"[:64]] = (name, {
+                    "name": "__start__", "description": f"Start the '{name}' plugin to get its tools. Call this ONLY "
+                    f"when the task really needs {name}.", "inputSchema": {"type": "object", "properties": {}}})
+                continue
             try:
                 self._start(name, spec)
             except Exception as e:  # noqa: BLE001 - one broken plugin must not break Windmill
@@ -251,6 +257,11 @@ class Plugins:
 
     def call(self, full, args):
         server, t = self.tools[full]
+        if t.get("name") == "__start__":
+            self.tools.pop(full, None)
+            self._start(server, self.specs_by[server])
+            names = [tt["name"] for s, tt in self.tools.values() if s == server]
+            return f"Started the '{server}' plugin. Its tools are now available: {', '.join(names)}"
         if server not in self.servers:  # first use: start it now
             self._start(server, self.specs_by[server])
         srv = self.servers[server]

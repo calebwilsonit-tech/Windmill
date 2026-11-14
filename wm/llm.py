@@ -19,7 +19,8 @@ class Cancelled(Exception):
 
 def est_tokens(obj):
     s = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
-    return int(len(s) / 3.6)
+    s, n_img = re.subn(r"data:image/[^\"']+", "", s)  # a picture costs the model roughly 800 tokens, not its file size
+    return int(len(s) / 3.6) + 800 * n_img
 
 
 class LLM:
@@ -35,6 +36,9 @@ class LLM:
     def chat(self, messages, tools=None, temperature=0.6, max_tokens=8192, on_text=None, on_think=None,
              stream=True, extra=None):
         """Returns {"content", "reasoning", "tool_calls": [{"id","name","arguments"}], "finish"}."""
+        # only the fields the API knows (Windmill keeps extra notes on messages, e.g. what to show in the chat window)
+        messages = [{k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "tool_call_id", "name")}
+                    for m in messages]
         if self.external:  # hosted APIs: only parameters every OpenAI-compatible provider accepts
             body = {"model": self.model, "messages": messages, "stream": stream,
                     ("max_completion_tokens" if "openai.com" in self.base else "max_tokens"): max_tokens}

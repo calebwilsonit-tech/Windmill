@@ -241,6 +241,23 @@ def server_params(model, hw, cfg):
     return p
 
 
+def mmproj_for(model_path):
+    """The vision adapter (mmproj) for a model, if it's on this PC: '<model>.mmproj.gguf' next to it (how Windmill saves
+    it), or the only mmproj*.gguf in a folder that holds just this one model (LM Studio's layout)."""
+    p = Path(model_path)
+    mine = p.with_name(re.sub(r"(-0000\d-of-0000\d)?\.gguf$", "", p.name) + ".mmproj.gguf")
+    if mine.exists():
+        return str(mine)
+    try:
+        ggufs = [f for f in p.parent.glob("*.gguf") if "mmproj" not in f.name.lower()]
+        mm = [f for f in p.parent.glob("*.gguf") if "mmproj" in f.name.lower()]
+        if len(mm) >= 1 and len({re.sub(r"-0000\d-of-0000\d", "", f.name) for f in ggufs}) == 1:
+            return str(sorted(mm, key=lambda f: ("f16" not in f.name.lower() and "bf16" not in f.name.lower(), f.name))[0])
+    except OSError:
+        pass
+    return None
+
+
 def current_model(cfg=None):
     cfg = cfg or config.load()
     if not cfg.get("model_path") or not Path(cfg["model_path"]).exists():
