@@ -325,7 +325,7 @@ async function send() {
 async function sendText(text) {
   if (!S.chat) { const r = await api("/api/chats", {}); S.chat = r.id; show("chat"); $("#transcript").innerHTML = ""; }
   addMsg("user", esc(text));
-  const r = await api(`/api/chats/${S.chat}/send`, { text });
+  const r = await api(`/api/chats/${S.chat}/send`, { text, role: chatRole() });
   if (r.error) { toast(r.error); return; }
   setBusy(true);
   listen(r.since);
@@ -731,14 +731,20 @@ async function loadModels() {
   const d = await api("/api/models");
   const hw = d.hw || {};
   $("#hw").textContent = `This PC: ${Math.round(hw.ram_gb || 0)} GB RAM` + (hw.gpu ? ` · ${hw.gpu} (${Math.round(hw.vram_gb)} GB)` : " · no NVIDIA GPU");
+  $("#models-note").innerHTML = `Windmill uses one model at a time. <b>Coding</b> = builds, fixes and coding chats. <b>Chat</b> = everyday chats
+    (writing, questions)${d.chat_model ? ` - now <b>${esc(d.chat_model)}</b> <a href="#" id="chat-same">use the coding model for chats too</a>` : " - not set, so chats use the coding model"}.
+    It switches by itself (about a minute), never during a build, and after ${d.unload_after_minutes || 0 ? `${d.unload_after_minutes} minutes unused it unloads to free memory` : "it stays loaded (unloading is off in Settings)"}.`;
+  if ($("#chat-same")) $("#chat-same").onclick = async e => { e.preventDefault(); await api("/api/models/select", { role: "chat" }); loadModels(); refresh(); };
   $("#models-list").innerHTML = (d.models || []).map(m => `
     <div class="item ${m.selected ? "selected" : ""}">
-      <div class="grow"><div class="t">${esc(m.name)} ${m.selected ? '<span class="badge">in use</span>' : ""}</div>
+      <div class="grow"><div class="t">${esc(m.name)} ${m.selected ? '<span class="badge">coding</span>' : ""} ${m.chat ? '<span class="badge chat">chat</span>' : ""}</div>
       <div class="s">${m.size_gb} GB · ${esc(m.quant)} · ${m.experts ? `MoE ${m.experts}×` : "dense"} · <span class="fit-${m.fit === "fast" ? "fast" : m.fit === "ok" ? "ok" : "too"}">${esc(m.why)}</span>
       ${m.bench ? ` · benchmark ${m.bench[0]}/${m.bench[1]}` : ""} · <span title="${esc(m.path)}">${esc(m.source)}</span></div></div>
-      ${m.selected ? "" : `<button class="ghost small" data-path="${esc(m.path)}">Use this</button>`}
+      <div class="row">${m.selected ? "" : `<button class="ghost small" data-path="${esc(m.path)}">Use for coding</button>`}
+      ${m.chat ? "" : `<button class="ghost small" data-chat="${esc(m.path)}">Use for chat</button>`}</div>
     </div>`).join("") || `<div class="muted">No models found yet. <a href="#" data-task="get-model">Get one</a>.</div>`;
   $$("#models-list [data-path]").forEach(b => b.onclick = async () => { await api("/api/models/select", { path: b.dataset.path }); loadModels(); refresh(); });
+  $$("#models-list [data-chat]").forEach(b => b.onclick = async () => { await api("/api/models/select", { path: b.dataset.chat, role: "chat" }); loadModels(); refresh(); });
   const sv = await api("/api/server");
   $("#server-log").textContent = sv.log || "(no log yet)";
   $("#server-toggle").textContent = sv.healthy ? "■ Stop the model (frees memory)" : "▶ Start the model now";
@@ -789,7 +795,7 @@ async function loadSkills() {
 }
 
 // ---------------------------------------------------------------- settings
-const SETTING_KEYS = ["auto_update", "permission", "web_access", "show_thinking", "auto_fix", "ctx", "max_steps", "library_refresh_days", "cache_type", "port"];
+const SETTING_KEYS = ["auto_update", "permission", "web_access", "unload_after_minutes", "show_thinking", "auto_fix", "ctx", "max_steps", "library_refresh_days", "cache_type", "port"];
 const CHOICES = { auto_update: ["auto", "ask", "off"], permission: ["auto", "ask"], cache_type: ["q8_0", "f16", "q4_0"] };
 async function loadSettings() {
   const { values, help } = await api("/api/settings");
@@ -1069,3 +1075,18 @@ $("#sidebar").addEventListener("click", e => { if (e.target.closest(".nav, .chat
 
 // set the message box hint for this screen size
 renderQueue();
+
+
+// ---------------------------------------------------------------- which model a chat uses (when a chat model is set)
+S.roles = {};
+function chatRole() { return S.state.chat_model ? (S.roles[S.chat] || "chat") : "code"; }
+function renderRole() {
+  const b = $("#role-btn");
+  b.classList.toggle("hidden", !S.state.chat_model || !!S.chatBuild);
+  const r = chatRole();
+  b.textContent = r === "chat" ? "💬 Chat model" : "🛠 Coding model";
+  b.title = r === "chat" ? `Using ${S.state.chat_model} (writing, questions). Click to use the coding model in this chat.`
+    : `Using ${S.state.model} (code). Click to use the chat model in this chat.`;
+}
+$("#role-btn").onclick = () => { S.roles[S.chat] = chatRole() === "chat" ? "code" : "chat"; renderRole(); };
+setInterval(renderRole, 1500);

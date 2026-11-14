@@ -35,6 +35,9 @@ DEFAULTS = {
     "auto_fix": True,
     "app_setup_done": False,
     "web_access": True,          # the AI may search the web and open links (web_search / fetch_url)
+    "chat_model_path": None,     # optional second model for everyday chats (writing, questions); None = use model_path
+    "chat_model_name": None,
+    "unload_after_minutes": 30,  # free the model's memory after this long unused (0 = keep it loaded)
     "recent_projects": [],              # folders opened in the app, newest first            # find/repair/install llama.cpp and re-find moved models automatically
 }
 

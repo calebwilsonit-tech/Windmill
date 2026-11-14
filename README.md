@@ -447,6 +447,17 @@ Other providers' OpenAI-compatible addresses: Gemini `https://generativelanguage
 Anthropic `https://api.anthropic.com/v1`, OpenRouter `https://openrouter.ai/api/v1`. That adds
 `api-plain` and `api-windmill` rows, so you see the frontier model both on its own and inside Windmill.
 
+## A chat model and a coding model
+
+You can use a second model for everyday chats (rewriting an essay, asking questions), for example **Gemma 4
+26B-A4B**, while builds keep using your coding model. Go to **AI models** and use **Use for chat** / **Use for coding**.
+- Only one model is loaded at a time. Switching unloads the other first (about a minute), so memory use never doubles.
+- Builds, new projects and fixes always use the coding model. A chat during a build borrows the coding model instead
+  of interrupting it; a build that starts mid-answer waits for the chat to finish.
+- Each chat has a small **💬 Chat model / 🛠 Coding model** switch under the message box.
+- An idle model uses essentially no processor or graphics card; it only holds memory. After
+  `unload_after_minutes` unused (default 30, in Settings) Windmill unloads it so the memory is free too.
+
 ## Getting new AI models
 
 New models come out constantly, and the community "quantizes" them (shrinks them, with little quality

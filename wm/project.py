@@ -498,8 +498,13 @@ def build(root=None):
         ui.warn("No ROADMAP.md here. Start with  windmill new  (or write a ROADMAP.md with '- [ ] ...' lines).")
         return
     cfg = config.load()
-    if not server.ensure(cfg):
+    if not server.ensure(cfg, role="code"):
         return
+    with server.hold("code"):
+        _build_loop(root, cfg)
+
+
+def _build_loop(root, cfg):
     while True:
         ms = milestones(root)
         todo = [(i, l) for i, l, d in ms if not d]

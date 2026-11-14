@@ -88,7 +88,7 @@
       <div id="composer">
         <textarea id="input" rows="1" placeholder="Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)"></textarea>
         <div class="composer-row">
-          <button class="folder-chip" id="composer-folder" title="Change the folder / GitHub repo Windmill works in">📁 <b id="composer-project"></b> ▾</button><span class="spacer"></span>
+          <button class="folder-chip hidden" id="role-btn" type="button"></button><button class="folder-chip" id="composer-folder" title="Change the folder / GitHub repo Windmill works in">📁 <b id="composer-project"></b> ▾</button><span class="spacer"></span>
           <button class="danger hidden" id="stop-btn">■ Stop</button>
           <button class="primary" id="send-btn">Send</button>
         </div>
@@ -162,6 +162,7 @@
         <button class="ghost" id="server-toggle">Start / stop model</button>
       </div>
       <div id="hw" class="muted"></div>
+      <p id="models-note" class="muted small"></p>
       <div id="models-list" class="list"></div>
       <details><summary>Model server log</summary><pre id="server-log" class="console small"></pre></details>
     </section>

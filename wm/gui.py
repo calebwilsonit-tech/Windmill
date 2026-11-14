@@ -123,21 +123,31 @@ class ChatRun:
         ev.wait(3600)
         return self.answers.pop(qid, [None, ""])[1]
 
-    def send(self, text):
+    def send(self, text, role=None):
         if self.busy:
             return False
         self.busy = True
         self.cancel.clear()
+        cfg = config.load()
+        role = role or ("chat" if cfg.get("chat_model_path") else "code")
 
         def work():
             try:
                 from . import server
-                if not server.health(config.load()):
-                    self.push({"type": "note", "text": "Starting the AI model (first time can take a minute)..."})
-                    if not server.ensure(config.load()):
-                        self.push({"type": "error", "text": "The AI model couldn't start. Open Setup > Fix."})
-                        return
-                final = self.ensure_agent().send(text)
+                want = server.role_cfg(cfg, role)
+                have = server.loaded_path()
+                if not server.health(cfg) or (have and want.get("model_path") and os.path.normcase(have) != os.path.normcase(want["model_path"])):
+                    self.push({"type": "note", "text": f"Loading the {'chat' if role == 'chat' else 'coding'} model (can take a minute)..."})
+                if not server.ensure(cfg, role=role):
+                    self.push({"type": "error", "text": "The AI model couldn't start. Open Setup > Fix."})
+                    return
+                agent = self.ensure_agent()
+                sysmsg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
+                if sysmsg is not None:
+                    base = sysmsg["content"].split("\n\nTHIS CHAT:")[0]
+                    sysmsg["content"] = base + ("\n\nTHIS CHAT: the user is using you as a general assistant (writing, editing, questions), not necessarily for code. If they want an essay rewritten, a question answered or something explained, just do it well in your reply - no tools or project files needed (use web_search/fetch_url for facts you're not sure of). Keep their voice when editing their writing; explain big changes briefly." if role == "chat" else "")
+                with server.hold(role):
+                    final = agent.send(text)
                 self.push({"type": "final", "text": final or ""})
                 note("Windmill replied", (final or "Done.").strip().splitlines()[0][:180] if (final or "").strip() else "Done.")
             except Exception as e:  # noqa: BLE001
@@ -481,7 +491,7 @@ def state():
         rec = recommend.home_line()
     except Exception:  # noqa: BLE001
         pass
-    return {"version": version.current(), "model": cfg.get("model_name"), "server": server.health(cfg, timeout=0.5),
+    return {"version": version.current(), "model": cfg.get("model_name"), "chat_model": cfg.get("chat_model_name") if cfg.get("chat_model_path") else None, "server": server.health(cfg, timeout=0.5),
             "project": str(root), "kinds": checks.kinds(root), "roadmap": (root / "ROADMAP.md").exists(),
             "android": (root / "android" / "app").is_dir(), "tip": rec, "app_installed": app_installed(),
             "library": (config.KIT / "corpus" / "corpus.db").exists(), "os": os.name}
@@ -542,8 +552,9 @@ def models_info():
     for m in models.discover(cfg):
         tag, why = models.fit(m, hw)
         out.append({**m, "fit": tag, "why": why, "selected": m["path"] == cfg.get("model_path"),
-                    "bench": scores.get(m["name"])})
-    return {"models": out, "hw": hw}
+                    "chat": m["path"] == cfg.get("chat_model_path"), "bench": scores.get(m["name"])})
+    return {"models": out, "hw": hw, "chat_model": cfg.get("chat_model_name") if cfg.get("chat_model_path") else None,
+            "unload_after_minutes": cfg.get("unload_after_minutes", 30)}
 
 
 SETTING_HELP = {
@@ -553,6 +564,7 @@ SETTING_HELP = {
     "show_thinking": "Show the model's thinking while it works",
     "auto_fix": "Find and repair llama.cpp / moved models automatically",
     "web_access": "Let the AI search the web and open links (turn off to keep everything offline)",
+    "unload_after_minutes": "Free the AI model's memory after this many minutes unused (0 = keep it loaded). Reloading takes about a minute.",
     "library_refresh_days": "Grow the reference library every N days (0 = never)",
     "max_steps": "Actions per message before Windmill checks in with you",
     "port": "Port the AI model server listens on",
@@ -926,7 +938,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self._json({"error": "no chat"}, 404)
                     run = CHATS[sid] = ChatRun(sid, s.project if Path(s.project).is_dir() else str(project()))
             if act == "send":
-                ok = run.send(b.get("text", ""))
+                ok = run.send(b.get("text", ""), b.get("role"))
                 return self._json({"ok": ok, "since": len(run.events)} if ok else {"error": "still working"}, 200 if ok else 409)
             if act == "stop":
                 run.cancel.set()
@@ -977,7 +989,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/models/select":
             from . import models, setup
             found = [x for x in models.discover() if x["path"] == b.get("path")]
-            if found:
+            if found and b.get("role") == "chat":
+                config.set_value("chat_model_path", found[0]["path"])
+                config.set_value("chat_model_name", found[0]["name"])
+            elif b.get("role") == "chat" and not b.get("path"):
+                config.set_value("chat_model_path", None)
+                config.set_value("chat_model_name", None)
+                return self._json({"ok": True})
+            elif found:
                 setup.select(found[0])
             return self._json({"ok": bool(found)})
         if path == "/api/settings":
@@ -1110,6 +1129,11 @@ def idle_watch():
     while True:
         time.sleep(15)
         busy = any(r.busy for r in CHATS.values()) or any(t.proc.poll() is None for t in TASKS.values())
+        try:  # free the model's memory when it hasn't been used for a while (setting: unload_after_minutes)
+            from . import server
+            server.unload_if_idle()
+        except Exception:  # noqa: BLE001
+            pass
         if not busy and time.time() - STATE["last_beat"] > 90:
             os._exit(0)
 

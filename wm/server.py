@@ -57,7 +57,8 @@ def status(cfg=None):
     cfg = cfg or config.load()
     pid = running_pid()
     up = health(cfg)
-    loaded = PID.read_text().split(maxsplit=1)[1] if PID.exists() and len(PID.read_text().split(maxsplit=1)) > 1 else None
+    parts = PID.read_text().split(maxsplit=2) if PID.exists() else []
+    loaded = parts[1].replace("_", " ") if len(parts) > 1 else None
     return {"pid": pid, "healthy": up, "model": loaded}
 
 
@@ -100,7 +101,10 @@ def start(cfg=None, quiet=False, wait=True):
     else:
         kw["start_new_session"] = True
     proc = subprocess.Popen(cmd, **kw)
-    PID.write_text(f"{proc.pid} {model['name']}")
+    PID.write_text(f"{proc.pid} {model['name'].replace(' ', '_')} {model['path']}")
+    d = _busy()
+    d["last_used"] = time.time()
+    _save_busy(d)
     if not quiet:
         ui.info(f"Starting {ui.bold(model['name'])} "
                 + ui.dim(f"(ctx {p['ctx']}, GPU layers {p['ngl']}" + (f", experts on CPU {p['cpu_moe']}" if p.get('cpu_moe') else "") + ")"))
@@ -151,14 +155,117 @@ def stop(quiet=False):
     PID.unlink(missing_ok=True)
 
 
-def ensure(cfg=None):
-    cfg = cfg or config.load()
-    if health(cfg):
+# ------------------------------------------------------------------ two models, one at a time: coding + chat
+# Builds / fixes use the coding model; everyday chats can use a separate chat model (writing, questions). Only one is
+# ever loaded (switching unloads the other first), a model that's in use is never swapped out from under its work,
+# and after `unload_after_minutes` unused the model is unloaded so its memory is free again.
+BUSY = config.HOME / "model-busy.json"
+
+
+def role_cfg(cfg, role):
+    """The settings to run the model for a role ('code' or 'chat')."""
+    if role == "chat" and cfg.get("chat_model_path") and Path(cfg["chat_model_path"]).exists() \
+            and cfg["chat_model_path"] != cfg.get("model_path"):
+        return {**cfg, "model_path": cfg["chat_model_path"], "model_name": cfg.get("chat_model_name"),
+                "cpu_moe": cfg.get("chat_cpu_moe"), "ngl": cfg.get("chat_ngl")}
+    return cfg
+
+
+def _alive(pid):
+    try:
+        if os.name == "nt":
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                               creationflags=0x08000000)
+            return str(pid) in r.stdout
+        os.kill(pid, 0)
         return True
+    except OSError:
+        return False
+
+
+def _busy():
+    try:
+        d = json.loads(BUSY.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        d = {"holders": {}, "last_used": time.time()}
+    d["holders"] = {k: v for k, v in d.get("holders", {}).items() if _alive(int(v["pid"]))}
+    return d
+
+
+def _save_busy(d):
+    try:
+        BUSY.parent.mkdir(parents=True, exist_ok=True)
+        BUSY.write_text(json.dumps(d), encoding="utf-8")
+    except OSError:
+        pass
+
+
+class hold:
+    """`with server.hold("code"):` - marks the loaded model as in use (so it isn't swapped or unloaded meanwhile)."""
+
+    def __init__(self, role="code"):
+        self.role, self.key = role, f"{os.getpid()}-{id(self)}"
+
+    def __enter__(self):
+        d = _busy()
+        d["holders"][self.key] = {"pid": os.getpid(), "role": self.role, "since": time.time()}
+        _save_busy(d)
+        return self
+
+    def __exit__(self, *a):
+        d = _busy()
+        d["holders"].pop(self.key, None)
+        d["last_used"] = time.time()
+        _save_busy(d)
+
+
+def loaded_path():
+    if not PID.exists() or not running_pid():
+        return None
+    parts = PID.read_text(encoding="utf-8").split(maxsplit=2)
+    return parts[2] if len(parts) > 2 else None
+
+
+def ensure(cfg=None, role="code"):
+    """Make sure the model for this kind of work is running. Switches models only when nothing is using the other one
+    (then this work simply uses the loaded model - e.g. a chat during a build uses the coding model)."""
+    cfg = cfg or config.load()
+    want = role_cfg(cfg, role)
+    up = health(cfg)
+    if up:
+        have = loaded_path()
+        if not have or not want.get("model_path") or Path(have) == Path(want["model_path"]):
+            return True
+        others = [h for h in _busy()["holders"].values() if h["role"] != role]
+        if others and role == "code":  # a build waits for a chat answer to finish (short) rather than run on the chat model
+            ui.info("(waiting for the chat answer to finish, then switching to the coding model)")
+            end = time.time() + 900
+            while others and time.time() < end:
+                time.sleep(2)
+                others = [h for h in _busy()["holders"].values() if h["role"] != role]
+        if others:
+            ui.info("(the other model is busy with " + ("a build" if others[0]["role"] == "code" else "a chat")
+                    + " - using it for this too)")
+            return True
+        ui.info("Switching to the " + ("chat" if role == "chat" else "coding") + " model (about a minute)...")
+        stop(quiet=True)
     if not cfg.get("auto_start_server", True):
         ui.err("Model server is not running. Start it with:  windmill server start")
         return False
-    return start(cfg)
+    return start(want)
+
+
+def unload_if_idle(cfg=None):
+    """Free the model's memory when it hasn't been used for a while (and nothing is using it)."""
+    cfg = cfg or config.load()
+    mins = cfg.get("unload_after_minutes", 30) or 0
+    if mins <= 0 or not running_pid():
+        return False
+    d = _busy()
+    if d["holders"] or time.time() - d.get("last_used", time.time()) < mins * 60:
+        return False
+    stop(quiet=True)
+    return True
 
 
 def tail_log(n=20):
