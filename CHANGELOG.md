@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.0 - 2026-11-14 (minor)
+- feat: websites get a real UI stack - Tailwind CSS + daisyUI (no build step) themed from the design brief, like Rust apps get egui/Bevy
+- (released automatically from the commit messages)
+
 ## 1.7.0 - 2026-11-13 (minor)
 - feat: first-start setup check in the app - one popup installs what's missing (llama.cpp, Git, Rust, C++ build tools) silently in the background; sturdier llama.cpp download
 - (released automatically from the commit messages)
