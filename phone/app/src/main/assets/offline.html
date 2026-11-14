@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Can't reach your computer</title>
+<link rel="stylesheet" href="phone.css">
+</head>
+<body>
+<main>
+  <img src="icon.png" alt="" width="64" height="64">
+  <h1>Can't reach your computer</h1>
+  <p class="muted">Windmill runs on your computer, so it needs to be reachable:</p>
+  <ul class="muted">
+    <li>The computer is on and awake, with Windmill running (the windmill icon by the clock).</li>
+    <li>Windmill &gt; <b>Phone</b> has <b>Let my phone connect</b> switched on.</li>
+    <li>This phone is on the same Wi-Fi - or Tailscale is on, if you're away from home.</li>
+  </ul>
+  <p class="muted small" id="where"></p>
+  <button class="primary" id="retry">Try again</button>
+  <button class="ghost" id="forget">Pair with a different computer</button>
+</main>
+<script>
+const base = WindmillApp.computer();
+document.querySelector("#where").textContent = base ? "Trying: " + base.replace(/^http:\/\//, "") : "";
+document.querySelector("#retry").onclick = () => WindmillApp.retry();
+document.querySelector("#forget").onclick = () => WindmillApp.forget();
+let n = 0;
+const t = setInterval(() => {  // keeps trying quietly for a minute, so it reconnects by itself when the computer wakes
+  if (++n > 6 || !base) return clearInterval(t);
+  fetch(base + "/api/phone/hello", { cache: "no-store" }).then(r => r.ok && WindmillApp.retry()).catch(() => {});
+}, 10000);
+</script>
+</body>
+</html>

@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1b1a18">
 <title>Windmill</title>
 <link rel="icon" href="/static/icon.png">
 <link rel="stylesheet" href="/static/app.css">
@@ -36,6 +37,7 @@
       <button class="nav" data-view="models">◈ AI models</button>
       <button class="nav" data-view="plugins">⧉ Plugins</button>
       <button class="nav" data-view="skills">✦ Skills</button>
+      <button class="nav" data-view="phone">📱 Phone</button>
       <button class="nav" data-view="settings">⚙ Settings</button>
       <button class="nav" data-view="updates">⟳ Updates <span id="update-dot" class="dot hidden"></span></button>
       <div class="version" id="version"></div>
@@ -44,6 +46,7 @@
 
   <main id="main">
     <header id="topbar">
+      <button class="icon-btn" id="menu-btn" aria-label="Menu" title="Menu">☰</button>
       <div class="title" id="view-title">Windmill</div>
       <div class="actions" id="quick-actions">
         <button class="ghost small" data-task="check" title="Build, lint, tests, sloppy-code guard">✓ Check</button>
@@ -189,6 +192,39 @@
       <div id="skills-list" class="list"></div>
     </section>
 
+    <!-- PHONE -->
+    <section class="view hidden" id="view-phone">
+      <p class="muted">Use Windmill from your Android phone: see your chats and builds live, send messages, answer questions.
+      The AI keeps running on this computer - the phone is a window onto it.</p>
+      <label class="switch big-switch"><input type="checkbox" id="phone-on"> <b>Let my phone connect</b>
+        <span class="help">Paired phones only. Windows may ask to allow Windmill on your network - choose <b>Allow</b> (private networks).</span></label>
+      <div id="phone-body" class="hidden">
+        <div class="phone-grid">
+          <div class="phone-card">
+            <h3>1. Install the app</h3>
+            <p class="muted small">Scan with your phone's camera (same Wi-Fi), then open the downloaded file. Android will ask
+            to allow installing apps from your browser - that's expected for apps that aren't from the Play Store.</p>
+            <div id="phone-qr" class="qr"></div>
+            <div class="muted small" id="phone-apk-url"></div>
+          </div>
+          <div class="phone-card">
+            <h3>2. Pair</h3>
+            <p class="muted small">Open Windmill on the phone. It finds this computer by itself - then type this code:</p>
+            <div class="pair-code" id="phone-code">------</div>
+            <div class="row"><span class="muted small" id="phone-ttl"></span><button class="ghost small" id="phone-newcode">New code</button></div>
+          </div>
+        </div>
+        <h3>This computer's addresses</h3>
+        <div id="phone-addrs" class="list"></div>
+        <p class="muted small">Away from home: install <b>Tailscale</b> (free) on this computer and your phone and sign in to both with the
+        same account. Then use the Tailscale address above in the phone app (<i>Enter address</i>). It's encrypted end to end.
+        On public Wi-Fi, use Tailscale rather than the Wi-Fi address.</p>
+        <h3>Paired phones</h3>
+        <div id="phone-devices" class="list"></div>
+      </div>
+      <p class="bad-text small" id="phone-error"></p>
+    </section>
+
     <!-- SETTINGS -->
     <section class="view hidden" id="view-settings">
       <form id="settings-form" class="settings"></form>
@@ -285,6 +321,7 @@
 <div id="updating" class="modal hidden" role="alertdialog" aria-label="Updating">
   <div class="modal-card row"><div class="spinner"></div><div><b>Updating Windmill</b><div class="muted small" id="updating-text"></div></div></div>
 </div>
+<div id="drawer-shade" class="drawer-shade"></div>
 <div id="toast" class="toast hidden"></div>
 <script src="/static/app.js"></script>
 </body>

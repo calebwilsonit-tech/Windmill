@@ -254,6 +254,54 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .setup-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); cursor: pointer; }
 .setup-item.ok { opacity: .7; cursor: default; }
 .setup-item input { margin-top: 3px; }
+/* phone */
+.big-switch { font-size: 15px; margin: 8px 0 14px; }
+.phone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 900px) { .phone-grid { grid-template-columns: 1fr; } }
+.phone-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.phone-card h3 { margin: 0 0 6px; font-size: 15px; }
+.qr { width: 190px; height: 190px; background: #fff; border-radius: 10px; padding: 6px; margin: 8px 0; }
+.qr svg { width: 100%; height: 100%; }
+.pair-code { font-family: var(--mono); font-size: 40px; font-weight: 700; letter-spacing: .12em; margin: 10px 0; color: var(--accent); }
+#view-phone h3 { font-size: 15px; margin: 18px 0 8px; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 9px 16px; border-radius: 10px; z-index: 20; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-@media (max-width: 760px) { #app { grid-template-columns: 1fr; } #sidebar { display: none; } }
+#menu-btn { display: none; font-size: 20px; }
+.drawer-shade { display: none; }
+
+/* ---------------------------------------------------------------- phone-sized screens (the Windmill phone app) */
+@media (max-width: 760px) {
+  #app { grid-template-columns: 1fr; height: 100dvh; }
+  #sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; left: 0; width: min(86vw, 330px); overflow-y: auto;
+    transform: translateX(-102%); transition: transform .22s ease-out; box-shadow: var(--shadow);
+    padding-top: max(14px, env(safe-area-inset-top)); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  body.drawer-open #sidebar { transform: none; }
+  .drawer-shade { position: fixed; inset: 0; z-index: 29; background: rgb(0 0 0 / .4); }
+  body.drawer-open .drawer-shade { display: block; }
+  #menu-btn { display: grid; place-items: center; width: 40px; height: 40px; }
+  #topbar { padding: max(8px, env(safe-area-inset-top)) 10px 8px; gap: 8px; }
+  #topbar .actions { display: none; }
+  #model-pill { max-width: 38vw; padding: 5px 10px; }
+  #model-pill #model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #tasks-btn { margin-right: 0; padding: 5px 9px; }
+  #tasks-label { max-width: 26vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .view { padding: 16px 14px calc(16px + env(safe-area-inset-bottom)); }
+  #transcript { padding: 14px 12px; gap: 12px; }
+  .msg.user { max-width: 88%; }
+  #composer { padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); }
+  #input { font-size: 16px; }  /* 16px stops phones zooming into the box */
+  .folder-chip { max-width: 48vw; }
+  .queue { padding: 6px 10px 0; }
+  .hero { padding: 18px 0 14px; } .hero h1 { font-size: 24px; }
+  .cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .card { padding: 12px; } .card span { font-size: 12.5px; }
+  .modal { padding: max(10px, env(safe-area-inset-top)) 8px 8px; place-items: start stretch; }
+  .modal-card { width: auto; max-height: calc(100dvh - 24px); overflow-y: auto; border-radius: 14px; }
+  .jobs { left: 8px; right: 8px; width: auto; top: calc(56px + env(safe-area-inset-top)); }
+  .popover { left: 8px !important; right: 8px; width: auto; }
+  .proj-grid { grid-template-columns: 1fr; }
+  .choices button { max-width: 100%; }
+  .msg.tool pre.code, .msg.logblock pre { font-size: 11.5px; }
+  .activity { padding: 6px 12px; }
+  input, select, textarea { font-size: 16px; }
+}

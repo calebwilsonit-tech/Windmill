@@ -117,6 +117,33 @@ the app. Command-line-only installs update exactly as before.
 **Lightweight:** the app is a small local server plus one app window, about one browser tab of memory. The
 AI uses the same token-saving machinery in the app as in the command line.
 
+## Windmill on your phone (Android)
+
+The phone app is a **window onto Windmill on your computer**. The AI keeps running on the computer, and the phone
+shows your chats and builds live (thinking, code being written, questions as buttons), and lets you send and
+queue messages, much like the Claude phone app.
+
+1. On the computer: Windmill → **📱 Phone** → switch on **Let my phone connect**. Windows may ask to allow Windmill
+   on your network; choose **Allow** (private networks).
+2. **Install:** scan the QR code with your phone's camera (same Wi-Fi), open the downloaded `WindmillPhone.apk`, and
+   allow installing from your browser when Android asks (it's not from the Play Store). It's also attached to every
+   release on GitHub.
+3. **Pair:** open Windmill on the phone. It finds the computer on the Wi-Fi by itself; type the 6-digit code shown
+   on the computer's Phone page.
+
+**Away from home:** install **Tailscale** (free) on the computer and the phone and sign in to both with the same
+account. Then, in the phone app, use **Enter address** with the Tailscale address shown on the Phone page. It's
+encrypted end to end. On public Wi-Fi, use Tailscale rather than the Wi-Fi address.
+
+**Security:** it's off until you switch it on. Only paired phones get in; each has its own key (the computer stores
+only a fingerprint of it), and you can remove a phone any time. Pairing codes expire after 10 minutes and stop
+working after a few wrong tries. Updates, setup and phone pairing can only be changed on the computer. The computer
+has to be on with Windmill running; tray icon → *Start with Windows* keeps it ready.
+
+The app's source is in `phone/` (Android, Java). Releases build it automatically. It's signed with the key in
+`phone/windmill-phone.keystore` so updates install over older versions; it's a sideloaded personal app, not a
+Play Store one.
+
 ## Connecting apps and services (plugins)
 
 Windmill can connect to other apps the same way Claude does: through **MCP connectors**.

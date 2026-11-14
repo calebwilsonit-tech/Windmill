@@ -22,14 +22,14 @@ setTheme((() => { try { return localStorage.getItem("wm-theme"); } catch { retur
 $("#theme-btn").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 
 // ---------------------------------------------------------------- views
-const TITLES = { projects: "Projects", library: "Code library", home: "Home", console: "Commands", models: "AI models", plugins: "Plugins", skills: "Skills", settings: "Settings", updates: "Updates" };
+const TITLES = { phone: "Phone", projects: "Projects", library: "Code library", home: "Home", console: "Commands", models: "AI models", plugins: "Plugins", skills: "Skills", settings: "Settings", updates: "Updates" };
 function show(view) {
   S.view = view;
   $$(".view").forEach(v => v.classList.add("hidden"));
   $(`#view-${view}`).classList.remove("hidden");
   $$(".nav").forEach(n => n.classList.toggle("active", n.dataset.view === view));
   if (view !== "chat") { $("#view-title").textContent = TITLES[view] || "Windmill"; $$(".chat-item").forEach(c => c.classList.remove("active")); }
-  ({ projects: loadProjects, library: loadLibrary, models: loadModels, plugins: loadPlugins, skills: loadSkills, settings: loadSettings, updates: loadUpdates }[view] || (() => { }))();
+  ({ phone: loadPhone, projects: loadProjects, library: loadLibrary, models: loadModels, plugins: loadPlugins, skills: loadSkills, settings: loadSettings, updates: loadUpdates }[view] || (() => { }))();
 }
 $$(".nav").forEach(n => n.onclick = () => show(n.dataset.view));
 
@@ -294,7 +294,9 @@ function renderQueue() {
     await api("/api/roadmap", { action: "add", text: t });
     addMsg("note", "＋ Added to the build plan: " + esc(t), "note ok"); renderQueue();
   });
-  $("#input").placeholder = S.busy ? "Windmill is working - type to queue your next message (Enter)" : "Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)";
+  const narrow = innerWidth < 760;
+  $("#input").placeholder = S.busy ? (narrow ? "Working - type to queue a message" : "Windmill is working - type to queue your next message (Enter)")
+    : (narrow ? "Message Windmill…" : "Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)");
 }
 function sendQueued() {
   const q = S.queue[S.chat] || [];
@@ -834,7 +836,15 @@ async function applyUpdate() {
   }
   say("This is taking unusually long. Close Windmill and open it again - the update is probably already installed.");
 }
+// Opened from the phone app (not this computer): computer-only things (updates, setup, phone pairing,
+// the folder window) stay on the computer.
+S.remote = !["127.0.0.1", "localhost"].includes(location.hostname) || location.port === "8765";
+if (S.remote) {
+  document.body.classList.add("remote");
+  $$('[data-view="phone"], [data-view="updates"], #pp-browse, #lib-browse, #new-browse').forEach(e => e.classList.add("hidden"));
+}
 async function startupUpdateCheck() {
+  if (S.remote) return;
   const u = await api("/api/update");
   $("#update-dot").classList.toggle("hidden", !u.available);
   let dismissed = null; try { dismissed = sessionStorage.getItem("wm-update-later"); } catch { }
@@ -979,3 +989,52 @@ $("#lib-add-btn").onclick = () => {
   runTask(["library", "add", v], { title: "Add to the library: " + v.split(/[\\/]/).filter(Boolean).pop(), onExit: () => { if (S.view === "library") loadLibrary(); } });
   $("#lib-add").value = "";
 };
+
+
+// ---------------------------------------------------------------- phone
+let qrLib = null;
+function loadQrLib() {  // small QR code generator, only loaded on this page
+  if (qrLib) return qrLib;
+  qrLib = new Promise((res, rej) => { const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"; s.onload = () => res(window.qrcode); s.onerror = rej; document.head.appendChild(s); });
+  return qrLib;
+}
+async function drawQr(el, text) {
+  try {
+    const qrcode = await loadQrLib();
+    const q = qrcode(0, "M"); q.addData(text); q.make();
+    el.innerHTML = q.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
+  } catch { el.innerHTML = `<div class="muted small">(QR code needs the internet - type the address below into the phone's browser instead)</div>`; }
+}
+async function loadPhone(info) {
+  const r = info || await api("/api/phone");
+  $("#phone-on").checked = !!r.enabled;
+  $("#phone-body").classList.toggle("hidden", !r.running);
+  $("#phone-error").textContent = r.error ? "Couldn't open the phone connection: " + r.error : "";
+  if (!r.running) return;
+  $("#phone-code").textContent = (r.code || "------").replace(/(\d{3})(\d{3})/, "$1 $2");
+  $("#phone-ttl").textContent = r.ttl ? `Changes in ${Math.ceil(r.ttl / 60)} min` : "";
+  const wifi = (r.addresses || []).find(a => a.kind === "wifi");
+  const apkUrl = wifi ? `http://${wifi.host}:${r.port}/phone.apk` : "";
+  $("#phone-apk-url").textContent = apkUrl || "No Wi-Fi address found - connect this computer to Wi-Fi.";
+  if (apkUrl && S.phoneQr !== apkUrl) { S.phoneQr = apkUrl; drawQr($("#phone-qr"), apkUrl); }
+  $("#phone-addrs").innerHTML = (r.addresses || []).map(a => `<div class="row lib-src"><b>${a.kind === "wifi" ? "Wi-Fi / home network" : "Tailscale (anywhere)"}</b>
+    <code style="flex:1">${esc(a.host)}:${r.port}</code></div>`).join("") || `<div class="muted small">No network address found.</div>`;
+  $("#phone-devices").innerHTML = (r.devices || []).map(d => `<div class="row lib-src"><b>📱 ${esc(d.name)}</b>
+    <span class="muted small" style="flex:1">paired ${ago(d.added)} · last used ${d.seen ? ago(d.seen) : "never"}</span>
+    <button class="ghost small" data-rm="${d.id}">Remove</button></div>`).join("") || `<div class="muted small">No phones paired yet.</div>`;
+  $$("#phone-devices [data-rm]").forEach(b => b.onclick = async () => { if (confirm("Remove this phone? It will need to pair again.")) loadPhone(await api("/api/phone", { action: "remove", id: b.dataset.rm })); });
+  clearTimeout(S.phoneT); S.phoneT = setTimeout(() => { if (S.view === "phone") loadPhone(); }, 15000);
+}
+$("#phone-on").onchange = async e => loadPhone(await api("/api/phone", { action: e.target.checked ? "enable" : "disable" }));
+$("#phone-newcode").onclick = async () => loadPhone(await api("/api/phone", { action: "new_code" }));
+
+
+// ---------------------------------------------------------------- phone-sized screens: the sidebar slides in
+const closeDrawer = () => document.body.classList.remove("drawer-open");
+$("#menu-btn").onclick = () => document.body.classList.toggle("drawer-open");
+$("#drawer-shade").onclick = closeDrawer;
+$("#sidebar").addEventListener("click", e => { if (e.target.closest(".nav, .chat-item, #new-chat")) closeDrawer(); });
+
+// set the message box hint for this screen size
+renderQueue();

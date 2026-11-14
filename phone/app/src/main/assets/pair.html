@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pair with your computer</title>
+<link rel="stylesheet" href="phone.css">
+</head>
+<body>
+<main>
+  <img src="icon.png" alt="" width="64" height="64">
+  <h1>Windmill</h1>
+  <p class="muted">Use Windmill on your computer from this phone. The AI keeps running on the computer.</p>
+
+  <section id="find">
+    <h2>1. Pick your computer</h2>
+    <p class="muted small">On the computer: open Windmill &gt; <b>Phone</b> and switch on <b>Let my phone connect</b>.
+    Make sure this phone is on the same Wi-Fi.</p>
+    <div id="list" class="list"><div class="muted">Looking for your computer…</div></div>
+    <div class="row"><button class="ghost" id="again">Search again</button><button class="ghost" id="manual-btn">Enter address</button></div>
+    <div id="manual" class="hidden">
+      <label>Computer address <input id="addr" placeholder="e.g. 192.168.1.20 or my-laptop.tail1234.ts.net" autocapitalize="off" autocorrect="off"></label>
+      <p class="muted small">Away from home, use the Tailscale address shown on the computer's Phone page.</p>
+      <button class="primary" id="addr-go">Connect</button>
+    </div>
+  </section>
+
+  <section id="code-step" class="hidden">
+    <h2>2. Type the code</h2>
+    <p class="muted small">Type the 6-digit code shown on <b id="pc-name">your computer</b>'s Phone page.</p>
+    <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456">
+    <button class="primary" id="pair">Pair</button>
+    <button class="ghost" id="back">Back</button>
+  </section>
+  <p id="msg" class="msg"></p>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const msg = (t, bad) => { $("#msg").textContent = t || ""; $("#msg").className = "msg" + (bad ? " bad" : ""); };
+let chosen = null;
+
+async function search() {
+  msg("");
+  $("#list").innerHTML = '<div class="muted">Looking for your computer…</div>';
+  await new Promise(r => setTimeout(r, 50));
+  let found = [];
+  try { found = JSON.parse(WindmillApp.discover()); } catch (e) { found = []; }
+  if (!found.length) {
+    $("#list").innerHTML = '<div class="muted">No computer found on this Wi-Fi. Check Windmill &gt; Phone is switched on, '
+      + 'that both are on the same Wi-Fi - or tap <b>Enter address</b>.</div>';
+    return;
+  }
+  $("#list").innerHTML = "";
+  for (const c of found) {
+    const b = document.createElement("button");
+    b.className = "pc";
+    b.innerHTML = `<b>💻 ${c.name.replace(/[<>&]/g, "")}</b><small>${c.base.replace(/^http:\/\//, "")}</small>`;
+    b.onclick = () => choose(c);
+    $("#list").appendChild(b);
+  }
+  if (found.length === 1) choose(found[0]);
+}
+
+function choose(c) {
+  chosen = c;
+  $("#pc-name").textContent = c.name;
+  $("#find").classList.add("hidden");
+  $("#code-step").classList.remove("hidden");
+  $("#code").value = "";
+  $("#code").focus();
+}
+
+async function manual() {
+  let a = $("#addr").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (!a) return;
+  if (!/:\d+$/.test(a)) a += ":8765";
+  const base = "http://" + a;
+  msg("Connecting…");
+  try {
+    const r = await fetch(base + "/api/phone/hello", { cache: "no-store" });
+    const j = await r.json();
+    if (!j.windmill) throw new Error();
+    msg("");
+    choose({ name: j.name || a, base });
+  } catch (e) {
+    msg("Couldn't reach Windmill at " + a + ". Is the computer on, Windmill open and Phone switched on?", true);
+  }
+}
+
+async function pair() {
+  const code = $("#code").value.replace(/\D/g, "");
+  if (code.length !== 6) return msg("The code has 6 digits.", true);
+  msg("Pairing…");
+  try {
+    const r = await fetch(chosen.base + "/api/phone/pair", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, name: WindmillApp.deviceName() }) });
+    const j = await r.json();
+    if (!j.token) return msg(j.error || "That didn't work - try again.", true);
+    WindmillApp.save(chosen.base, j.token);
+    msg("Paired! Opening Windmill…");
+    location.href = chosen.base + "/?dev=" + encodeURIComponent(j.token);
+  } catch (e) {
+    msg("Couldn't reach the computer - check it's on the same Wi-Fi.", true);
+  }
+}
+
+$("#again").onclick = search;
+$("#manual-btn").onclick = () => { $("#manual").classList.toggle("hidden"); $("#addr").focus(); };
+$("#addr-go").onclick = manual;
+$("#addr").onkeydown = e => { if (e.key === "Enter") manual(); };
+$("#pair").onclick = pair;
+$("#code").onkeydown = e => { if (e.key === "Enter") pair(); };
+$("#code").oninput = e => { if (e.target.value.replace(/\D/g, "").length === 6) pair(); };
+$("#back").onclick = () => { $("#code-step").classList.add("hidden"); $("#find").classList.remove("hidden"); msg(""); };
+search();
+</script>
+</body>
+</html>

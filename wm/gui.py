@@ -641,7 +641,20 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n) or b"{}") if n else {}
 
+    def _phone(self):
+        return getattr(self.server, "phone", False)
+
     def _authed(self):
+        if self._phone():  # the network entry point: paired phones only, same-origin requests only
+            from . import phone
+            cookie = self.headers.get("Cookie") or ""
+            m = re.search(r"wm_dev=([\w-]+)", cookie)
+            did = phone.check_token(self.headers.get("X-Windmill-Device") or (m.group(1) if m else ""))
+            origin = self.headers.get("Origin")
+            if did and (not origin or origin == f"http://{self.headers.get('Host', '')}"):
+                phone.touch(did)
+                return True
+            return False
         tok = self.server.token
         cookie = self.headers.get("Cookie") or ""
         if f"wm_token={tok}" in cookie or self.headers.get("X-Windmill-Token") == tok:
@@ -675,12 +688,69 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     # --- routes
+    def _cors(self):  # only the phone app's pairing calls are allowed cross-origin
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        if self._phone() and self.path.startswith("/api/phone/"):
+            self.send_response(204)
+            self._cors()
+            self.end_headers()
+            return
+        self.send_response(403)
+        self.end_headers()
+
+    def _phone_open(self, path, q, body=None):
+        """Phone entry point, no key needed: hello (discovery check), pairing, and the app's install file."""
+        from . import phone
+        if path == "/api/phone/hello":
+            data = json.dumps({"windmill": True, "name": socket.gethostname()[:40], "version": version.current()}).encode()
+        elif path == "/api/phone/pair" and body is not None:
+            tok = phone.pair(body.get("code"), body.get("name") or "Phone")
+            time.sleep(0.4 if tok else 1.2)  # slows down guessing
+            data = json.dumps({"token": tok} if tok else {"error": "That code didn't match - check the code on your computer."}).encode()
+        elif path == "/phone.apk":
+            apk = phone.apk_path()
+            if not apk:
+                return self._json({"error": "The phone app isn't available for this version yet."}, 404)
+            data = apk.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.android.package-archive")
+            self.send_header("Content-Disposition", 'attachment; filename="WindmillPhone.apk"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return True
+        else:
+            return False
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(data)
+        return True
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         path = u.path
         if path == "/health":
             return self._json({"ok": True, "version": version.current()})
+        if self._phone():
+            if self._phone_open(path, q):
+                return
+            if path in ("/", "/index.html") and q.get("dev"):  # first load from the phone app: remember the key
+                from . import phone
+                if phone.check_token(q["dev"][0]):
+                    self.send_response(302)
+                    self.send_header("Set-Cookie", f"wm_dev={q['dev'][0]}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly")
+                    self.send_header("Location", "/")
+                    self.end_headers()
+                    return
+                return self._json({"error": "This phone isn't paired (any more). Pair it again in the Windmill app."}, 403)
         if path in ("/", "/index.html"):
             if q.get("token", [""])[0] == self.server.token:  # first load from the launcher: set the cookie
                 self.send_response(302)
@@ -721,6 +791,8 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             t = TASKS.get(m.group(1))
             return self._sse(t, int(q.get("since", ["0"])[0])) if t else self._json({"error": "no task"}, 404)
+        if path == "/api/phone" and not self._phone():
+            return self._json(phone_info())
         if path == "/api/setup/check":  # first start: what's missing (quiet, nothing is installed)
             from . import setup
             return self._json(setup.components())
@@ -791,6 +863,13 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "unknown"}, 404)
 
     def do_POST(self):
+        if self._phone() and self.path.startswith("/api/phone/"):
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0) or 0) or b"{}")
+            except ValueError:
+                body = {}
+            if self._phone_open(urllib.parse.urlparse(self.path).path, {}, body if isinstance(body, dict) else {}):
+                return
         if not self._authed():
             return self._json({"error": "forbidden"}, 403)
         STATE["last_beat"] = time.time()
@@ -937,6 +1016,10 @@ class Handler(BaseHTTPRequestHandler):
             UPDATING.update(step="Downloading the update…", target=info["latest"], started=time.time())
             threading.Thread(target=run_update, args=(f"v{info['latest']}",), daemon=True).start()
             return self._json({"ok": True, "started": True})
+        if path == "/api/phone" and not self._phone():
+            return self._json(phone_action(b))
+        if self._phone() and path in ("/api/shutdown", "/api/phone", "/api/pick-folder", "/api/update/apply"):
+            return self._json({"error": "Do that on the computer."}, 403)
         if path == "/api/shutdown":
             self._json({"ok": True})
             threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
@@ -985,6 +1068,11 @@ def restart():
     (The new process waits for the port to free up; the main thread is held so Python can't quit first.)"""
     time.sleep(0.5)
     STATE["restarting"] = True
+    try:
+        from . import phone
+        phone.stop()
+    except Exception:  # noqa: BLE001
+        pass
     srv = STATE.get("httpd")
     if srv:
         srv.shutdown()
@@ -1013,6 +1101,35 @@ def idle_watch():
             os._exit(0)
 
 
+def phone_info():
+    from . import phone
+    c, ttl = phone.code() if phone.running() else (None, 0)
+    return {"enabled": bool(config.load().get("phone_access")), "running": phone.running(), "port": phone.PORT,
+            "code": c, "ttl": ttl, "addresses": phone.addresses() if phone.running() else [],
+            "devices": [{"id": k, "name": v.get("name"), "added": v.get("added"), "seen": v.get("seen")}
+                        for k, v in phone.devices().items()],
+            "apk": phone.APK.exists()}
+
+
+def phone_action(b):
+    from . import phone
+    act = b.get("action")
+    if act == "enable":
+        config.set_value("phone_access", True)
+        err = phone.start(Handler)
+        if err:
+            return {**phone_info(), "error": err}
+        threading.Thread(target=phone.apk_path, daemon=True).start()  # have the install file ready
+    elif act == "disable":
+        config.set_value("phone_access", False)
+        phone.stop()
+    elif act == "new_code":
+        phone.code(new=True)
+    elif act == "remove":
+        phone.remove(b.get("id"))
+    return phone_info()
+
+
 def serve(port=None, token=None, block=True):
     port, token = port or free_port(), token or secrets.token_urlsafe(24)
     for attempt in range(60):  # after an update restart the old process may still hold the port for a moment
@@ -1030,6 +1147,10 @@ def serve(port=None, token=None, block=True):
     info.parent.mkdir(parents=True, exist_ok=True)
     info.write_text(json.dumps({"port": port, "token": token, "pid": os.getpid()}), encoding="utf-8")
     threading.Thread(target=idle_watch, daemon=True).start()
+    if config.load().get("phone_access"):
+        from . import phone
+        if phone.start(Handler) is None:
+            threading.Thread(target=phone.apk_path, daemon=True).start()
     if block:
         httpd.serve_forever()
         while STATE.get("restarting"):  # restart() is starting the new engine - don't let Python exit under it

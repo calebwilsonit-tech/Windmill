@@ -83,3 +83,32 @@ jobs:
           gh release view "v$v" *> $null
           if ($LASTEXITCODE -ne 0) { gh release create "v$v" --title "Windmill $v" --notes "$notes" }
           gh release upload "v$v" dist\WindmillSetup.exe dist\Windmill.exe --clobber
+
+  # Build the Windmill phone app (Android) and attach it to the release. The computer serves this file to phones.
+  phone:
+    needs: [release, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Build WindmillPhone.apk
+        run: |
+          v=$(cat VERSION | tr -d '[:space:]')
+          gradle -p phone --no-daemon assembleDebug -PwmVersion="$v"
+          cp phone/app/build/outputs/apk/debug/app-debug.apk WindmillPhone.apk
+          ls -la WindmillPhone.apk
+      - name: Attach to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(cat VERSION | tr -d '[:space:]')
+          gh release upload "v$v" WindmillPhone.apk --clobber
