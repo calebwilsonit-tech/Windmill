@@ -239,8 +239,7 @@ def new_project(idea=None, who=None, extra=None, parent=None):
 
 
 # Library focus per project type (keeps unrelated web code out of an Android game's references)
-FOCUS = {"web": ["ui-design", "web-frontend", "accessibility", "learning"],
-         "game": ["android", "game", "graphics", "physics", "ui-design", "learning", "algorithms", "core", "ecs"],
+FOCUS = {"game": ["android", "game", "graphics", "physics", "ui-design", "learning", "algorithms", "core", "ecs"],
          "app": ["android", "gui", "ui-design", "mobile", "learning", "algorithms", "core", "async", "db"]}
 
 LIB_TOML = """
@@ -446,8 +445,7 @@ def scaffold(root, plan, preset):
     (root / ".gitignore").write_text("target/\nnode_modules/\ndist/\n.env\n", encoding="utf-8") if not (root / ".gitignore").exists() else None
     (root / "ai-kit.json").write_text(json.dumps({"test_cmd": None, "max_rounds": 4, "step_retries": 3,
                                                   "mutation_testing": preset["rust"], "best_of_n": 3,
-                                                  "corpus_categories": FOCUS.get(preset.get("android") or (
-                                                      "web" if preset.get("web") else ""), []),
+                                                  "corpus_categories": FOCUS.get(preset.get("android") or "", []),
                                                   "reference_budget": 1800}, indent=2), encoding="utf-8")
     run("git", "add", "-A")
     run("git", "-c", "user.name=Windmill", "-c", "user.email=windmill@localhost", "commit", "-q", "-m", "windmill: new project")

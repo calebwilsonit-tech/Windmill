@@ -259,8 +259,8 @@ only touch files inside the project folder.
 web-server projects start with **Tailwind CSS + daisyUI** wired in. They load from a CDN (a public download
 server), so there's no build step. The project's design brief becomes a **daisyUI theme** (`css/theme.css`), so
 sites use proper ready-made components (buttons, cards, navbars, dialogs, drawers, tabs, forms, alerts, tables…)
-and still look like *this* project rather than stock daisyUI. The AI's library lookups focus on UI design and web
-front-end code. Older website projects get the theme file the first time the AI reads their design brief.
+and still look like *this* project rather than stock daisyUI. Like Rust projects, they search the whole library,
+including all 19 UI design systems. Older website projects get the theme file the first time the AI reads their design brief.
 
 Every project gets its own **design brief** (`windmill design`, or chosen during `windmill new`):
 
