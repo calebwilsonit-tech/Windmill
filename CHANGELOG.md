@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.2 - 2026-11-14 (fix)
+- fix: chats have a real Chat mode (a plain assistant - no project tools or plugins) vs Code mode; plugins start only when used; no tools for small talk
+- (released automatically from the commit messages)
+
 ## 1.14.1 - 2026-11-14 (fix)
 - fix: Quit Windmill unloads the AI model too; tray menu gets 'Free AI memory'
 - (released automatically from the commit messages)
