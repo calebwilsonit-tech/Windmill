@@ -119,7 +119,10 @@ def start(cfg=None, quiet=False, wait=True):
         try:  # double-check the graphics card is really in use (the log names the GPU backend when it is)
             from . import heal
             log = LOG.read_text(encoding="utf-8", errors="replace") if LOG.exists() else ""
-            if heal.has_nvidia() and log and not re.search(r"CUDA\d|Vulkan\d|offloaded \d+/\d+ layers to GPU", log):
+            gpu_used = bool(re.search(r"CUDA\d|Vulkan\d|offloaded \d+/\d+ layers to GPU", log))
+            if heal.has_nvidia() and log:
+                config.set_value("gpu_not_used", not gpu_used)  # next repair fetches a build this PC's GPU can run
+            if heal.has_nvidia() and log and not gpu_used:
                 ui.warn("The AI is running on the processor only, not your graphics card (much slower). "
                         "Run  windmill fix  to get the graphics-card version of llama.cpp.")
         except Exception:  # noqa: BLE001
@@ -191,7 +194,13 @@ def pick_assets(assets, hw):
         arm = "arm64" in mach
         if hw.get("gpu") and "nvidia" in hw["gpu"].lower() or hw.get("vram_gb"):
             cudas = sorted((n for n in names if n.startswith("llama-") and "win-cuda" in n and "x64" in n and n.endswith(".zip")), reverse=True)
-            for main in cudas:  # newest CUDA build that also has its runtime zip
+            try:  # CUDA 13 builds need an NVIDIA driver from the 580 series or newer - otherwise use CUDA 12
+                drv = int(str(hw.get("driver") or "0").split(".")[0])
+            except ValueError:
+                drv = 0
+            if drv < 580:
+                cudas = [n for n in cudas if "win-cuda-13" not in n and "win-cuda-14" not in n] or cudas
+            for main in cudas:  # newest CUDA build (that this driver runs) that also has its runtime zip
                 ver = main.split("win-cuda-")[1].split("-x64")[0]
                 rt = next((n for n in names if n.startswith("cudart") and f"cuda-{ver}" in n), None)
                 if rt:
@@ -219,23 +228,36 @@ def _releases():
         tag = r.geturl().rstrip("/").split("/")[-1]
     req = urllib.request.Request(f"https://github.com/ggml-org/llama.cpp/releases/expanded_assets/{tag}",
                                  headers={"User-Agent": "windmill"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        page = r.read().decode("utf-8", errors="replace")
-    names = dict.fromkeys(re.findall(rf'href="/ggml-org/llama\.cpp/releases/download/{re.escape(tag)}/([^"]+)"', page))
+    names = {}
+    for url in (f"https://github.com/ggml-org/llama.cpp/releases/expanded_assets/{tag}",  # the file list
+                f"https://github.com/ggml-org/llama.cpp/releases/tag/{tag}"):            # the release notes' links
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "windmill"}), timeout=30) as r:
+                page = r.read().decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            continue
+        for n in re.findall(rf'(?:https://github\.com)?/ggml-org/llama\.cpp/releases/download/{re.escape(tag)}/([^"\s<>)]+)', page):
+            names.setdefault(n, None)
     return [{"tag_name": tag, "assets": [{"name": n, "browser_download_url":
                                           f"https://github.com/ggml-org/llama.cpp/releases/download/{tag}/{n}"} for n in names]}]
+
+
+_releases_seen = []
 
 
 def install_llamacpp(hw=None):
     hw = hw or models.hardware()
     ui.info("Looking up the latest llama.cpp release...")
     rel, chosen = None, []
-    for r in _releases():  # the newest release whose files for this PC are uploaded (new ones fill in over minutes)
+    _releases_seen[:] = _releases()
+    for r in _releases_seen:  # the newest release whose files for this PC are uploaded (new ones fill in over minutes)
         chosen = [n for n in pick_assets(r.get("assets") or [], hw) if n]
         if chosen:
             rel = r
             break
     if not rel:
+        seen = ", ".join(f"{r.get('tag_name')} ({len(r.get('assets') or [])} files)" for r in _releases_seen) or "none"
+        ui.warn(f"(releases looked at: {seen})")
         ui.err("Couldn't find a llama.cpp build for this computer. Download it manually from "
                "github.com/ggml-org/llama.cpp/releases into the windmill\\llama.cpp folder.")
         return None

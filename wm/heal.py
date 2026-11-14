@@ -250,7 +250,8 @@ def ensure_llama(cfg=None, quiet=False, allow_download=True):
     say = (lambda m: None) if quiet else ui.info
     cur = cfg.get("llama_server")
     nv = has_nvidia()  # an NVIDIA card: only a CUDA/Vulkan build uses it - a CPU-only build is several times slower
-    if cur and Path(cur).is_file() and (not nv or is_gpu_build(cur)) and probe(cur)[0] == "ok":
+    gpu_failed = nv and cfg.get("gpu_not_used") and time.time() - cfg.get("gpu_build_tried", 0) > 86400
+    if cur and Path(cur).is_file() and (not nv or (is_gpu_build(cur) and not gpu_failed)) and probe(cur)[0] == "ok":
         return cur
     found = candidates(cfg)
     if not found:
@@ -268,7 +269,7 @@ def ensure_llama(cfg=None, quiet=False, allow_download=True):
         results.append((b, status, detail, build))
     good = sorted([r for r in results if r[1] == "ok"],
                   key=lambda r: (nv and is_gpu_build(r[0]), r[3] or 0, is_cuda_build(r[0])), reverse=True)
-    if good and nv and not is_gpu_build(good[0][0]) and allow_download and \
+    if good and nv and (not is_gpu_build(good[0][0]) or gpu_failed) and allow_download and \
             time.time() - cfg.get("gpu_build_tried", 0) > 86400:
         say("Your llama.cpp can't use your NVIDIA graphics card (it runs everything on the processor, which is several "
             "times slower) - getting the graphics-card (CUDA) version...")
@@ -280,6 +281,7 @@ def ensure_llama(cfg=None, quiet=False, allow_download=True):
                 add_cudart(b)
             if b and probe(b)[0] == "ok" and is_gpu_build(b):
                 config.set_value("llama_server", str(b))
+                config.set_value("gpu_not_used", False)
                 ui.ok("Now using your graphics card for the AI.")
                 return str(b)
         except Exception as e:  # noqa: BLE001

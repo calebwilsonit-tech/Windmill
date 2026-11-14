@@ -100,12 +100,14 @@ def hardware():
 
 def nvidia_smi():
     try:
-        r = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,memory.used", "--format=csv,noheader,nounits"],
+        r = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,memory.used,driver_version",
+                            "--format=csv,noheader,nounits"],
                            capture_output=True, text=True, timeout=10,
                            creationflags=0x08000000 if os.name == "nt" else 0)  # no console window
         if r.returncode == 0 and r.stdout.strip():
-            name, total, used = [x.strip() for x in r.stdout.strip().splitlines()[0].split(",")]
-            return {"gpu": name, "vram_gb": float(total) / 1024, "vram_used_gb": float(used) / 1024}
+            name, total, used, *drv = [x.strip() for x in r.stdout.strip().splitlines()[0].split(",")]
+            return {"gpu": name, "vram_gb": float(total) / 1024, "vram_used_gb": float(used) / 1024,
+                    "driver": drv[0] if drv else ""}
     except (OSError, ValueError, subprocess.TimeoutExpired):
         pass
     return None
