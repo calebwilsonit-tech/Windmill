@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.0 - 2026-11-14 (minor)
+- feat: attach files and photos (and take photos on the phone), model picker in the message box, plugins never start by themselves, new models ask what they're for
+- (released automatically from the commit messages)
+
 ## 1.14.2 - 2026-11-14 (fix)
 - fix: chats have a real Chat mode (a plain assistant - no project tools or plugins) vs Code mode; plugins start only when used; no tools for small talk
 - (released automatically from the commit messages)
