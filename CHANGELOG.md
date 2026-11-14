@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.1 - 2026-11-14 (fix)
+- fix: Quit Windmill unloads the AI model too; tray menu gets 'Free AI memory'
+- (released automatically from the commit messages)
+
 ## 1.14.0 - 2026-11-14 (minor)
 - feat: separate chat model and coding model - one loaded at a time, switches by itself (never during a build), unloads when idle to free memory
 - (released automatically from the commit messages)
