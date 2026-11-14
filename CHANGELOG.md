@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.14.0 - 2026-11-14 (minor)
+- feat: separate chat model and coding model - one loaded at a time, switches by itself (never during a build), unloads when idle to free memory
+- (released automatically from the commit messages)
+
 ## 1.13.0 - 2026-11-14 (minor)
 - feat: built-in Tailscale setup is automatic - sign-in and Tailscale's one-click approval page open by themselves, and Windmill connects the moment you approve (no restart)
 - (released automatically from the commit messages)
