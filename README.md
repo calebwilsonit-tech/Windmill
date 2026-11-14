@@ -255,6 +255,13 @@ only touch files inside the project folder.
 
 ## Design: UI that doesn't all look the same
 
+**Websites use real UI frameworks**, just as Rust apps use egui and Bevy. Website, phone web app and Rust
+web-server projects start with **Tailwind CSS + daisyUI** wired in. They load from a CDN (a public download
+server), so there's no build step. The project's design brief becomes a **daisyUI theme** (`css/theme.css`), so
+sites use proper ready-made components (buttons, cards, navbars, dialogs, drawers, tabs, forms, alerts, tables…)
+and still look like *this* project rather than stock daisyUI. The AI's library lookups focus on UI design and web
+front-end code. Older website projects get the theme file the first time the AI reads their design brief.
+
 Every project gets its own **design brief** (`windmill design`, or chosen during `windmill new`):
 
 - one of **16 art directions**: editorial, Swiss, neo-brutalist, soft product, luxury, playful,

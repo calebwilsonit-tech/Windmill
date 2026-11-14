@@ -24,14 +24,16 @@ ANDROID_COMMON = """Android rules:
 - Logging: use `log`/`bevy::log` - it appears in `windmill android logs`. Panics show there too."""
 
 PRESETS = {
-    "website": dict(label="Website (works on phones too)", rust=False, game=False,
-                    stack="Plain HTML + CSS + JavaScript, no build step. Opens in any browser, easy to host anywhere.",
+    "website": dict(web=True, label="Website (works on phones too)", rust=False, game=False,
+                    stack="HTML + Tailwind CSS + daisyUI components + JavaScript, no build step. Opens in any browser, "
+                          "easy to host anywhere.",
                     rules="Static site: index.html at the root, css/ and js/ folders, assets/ for images/icons. "
-                          "Semantic HTML, mobile-first CSS using the design tokens, vanilla JS modules only."),
-    "web-app": dict(label="Web app with a server (accounts, data, forms)", rust=True, game=False,
+                          "Semantic HTML, mobile-first, vanilla JS modules only. Pages use Tailwind CSS + daisyUI from the CDN (no build step) with the project's daisyUI theme in css/theme.css - follow the 'Websites' section of .windmill/design.md. Use daisyUI components and Tailwind utilities; no hand-rolled buttons/cards/modals; colours only via theme names."),
+    "web-app": dict(web=True, label="Web app with a server (accounts, data, forms)", rust=True, game=False,
                     stack="Rust axum server + server-rendered HTML pages + SQLite database.",
                     rules="Rust axum + tokio. HTML templates in templates/, static files in static/. SQLite via sqlx. "
-                          "Every route has tests (axum + tower::ServiceExt::oneshot)."),
+                          "Every route has tests (axum + tower::ServiceExt::oneshot). Pages use Tailwind CSS + daisyUI from the CDN (no build step) with the project's daisyUI theme in css/theme.css - follow the 'Websites' section of .windmill/design.md. Use daisyUI components and Tailwind utilities; no hand-rolled buttons/cards/modals; colours only via theme names. Here the theme is "
+                          "static/css/theme.css, linked as /static/css/theme.css."),
     "game-2d": dict(label="2D game", rust=True, game=True,
                     stack="Rust + Bevy game engine (desktop; can target web and mobile later).",
                     rules="Rust + Bevy. Organise by plugins (src/player.rs, src/enemy.rs, src/ui.rs ...), one Plugin per "
@@ -65,10 +67,12 @@ PRESETS = {
   touch targets >= 48dp; use `ui.add_sized` for big buttons; generous spacing via `ctx.style_mut`.
 - Apply the design brief through `egui::Visuals` / `Style` (colours, rounding, spacing, fonts via FontDefinitions).
 - Persist user data with eframe storage (`persistence` feature) or files in the app's data dir."""),
-    "mobile-app": dict(label="Phone app that installs from the web (any phone)", rust=False, game=False,
-                       stack="Progressive Web App: HTML/CSS/JS that installs to a phone home screen and works offline.",
+    "mobile-app": dict(web=True, label="Phone app that installs from the web (any phone)", rust=False, game=False,
+                       stack="Progressive Web App (HTML + Tailwind CSS + daisyUI + JS) that installs to a phone home "
+                             "screen and works offline.",
                        rules="PWA: index.html, manifest.webmanifest, service-worker.js (offline cache), icons in assets/. "
-                             "Touch-first UI, 44px+ targets, safe-area insets, bottom navigation."),
+                             "Touch-first UI, 44px+ targets, safe-area insets, bottom navigation (daisyUI dock). "
+                             "Pages use Tailwind CSS + daisyUI from the CDN (no build step) with the project's daisyUI theme in css/theme.css - follow the 'Websites' section of .windmill/design.md. Use daisyUI components and Tailwind utilities; no hand-rolled buttons/cards/modals; colours only via theme names. Cache the CDN files in the service worker so it works offline."),
     "cli": dict(label="Command-line tool", rust=True, game=False,
                 stack="Rust + clap: a fast, single-file program.",
                 rules="Rust + clap derive. Library logic in src/lib.rs with tests; thin src/main.rs."),
@@ -235,7 +239,8 @@ def new_project(idea=None, who=None, extra=None, parent=None):
 
 
 # Library focus per project type (keeps unrelated web code out of an Android game's references)
-FOCUS = {"game": ["android", "game", "graphics", "physics", "ui-design", "learning", "algorithms", "core", "ecs"],
+FOCUS = {"web": ["ui-design", "web-frontend", "accessibility", "learning"],
+         "game": ["android", "game", "graphics", "physics", "ui-design", "learning", "algorithms", "core", "ecs"],
          "app": ["android", "gui", "ui-design", "mobile", "learning", "algorithms", "core", "async", "db"]}
 
 LIB_TOML = """
@@ -358,6 +363,56 @@ def scaffold_android(root, plan, preset, crate):
     android.create_wrapper(root, name, app_id, crate, kind=preset["android"], palette=palette)
 
 
+def _web_starter(root, plan, server_side=False):
+    """Websites start wired up: Tailwind + daisyUI (CDN), the design brief as a daisyUI theme, the right fonts."""
+    from .design import DAISY_CDN, TAILWIND_CDN, fonts_link, write_web_theme
+    b = root / ".windmill" / "design.json"
+    brief = json.loads(b.read_text(encoding="utf-8")) if b.exists() else None
+    if server_side:  # Rust web app: pages come from the server; it just needs the theme + site.css under static/
+        (root / "static" / "css").mkdir(parents=True, exist_ok=True)
+        if brief:
+            write_web_theme(root, brief)
+        (root / "static" / "css" / "site.css").write_text("/* The design brief's signature moves. */\n", encoding="utf-8")
+        return
+    if brief:
+        write_web_theme(root, brief)
+    (root / "css").mkdir(exist_ok=True)
+    (root / "js").mkdir(exist_ok=True)
+    (root / "assets").mkdir(exist_ok=True)
+    site = root / "css" / "site.css"
+    if not site.exists():
+        site.write_text("/* The design brief's signature moves - everything else comes from Tailwind + daisyUI. */\n", encoding="utf-8")
+    idx = root / "index.html"
+    if idx.exists():
+        return
+    name, line = plan["name"].replace("<", ""), plan["one_liner"].replace("<", "")
+    fonts = f'  <link href="{fonts_link(brief)}" rel="stylesheet">\n' if brief else ""
+    idx.write_text(f"""<!doctype html>
+<html lang="en" data-theme="brand">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{name}</title>
+  <meta name="description" content="{line}">
+{fonts}  <link href="{DAISY_CDN}" rel="stylesheet" type="text/css">
+  <script src="{TAILWIND_CDN}"></script>
+  <link href="css/theme.css" rel="stylesheet">
+  <link href="css/site.css" rel="stylesheet">
+</head>
+<body class="min-h-screen bg-base-100 text-base-content">
+  <main class="mx-auto max-w-5xl px-4 py-16">
+    <h1 class="text-4xl font-bold">{name}</h1>
+    <p class="mt-4 text-lg">{line}</p>
+  </main>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
+""", encoding="utf-8")
+    js = root / "js" / "main.js"
+    if not js.exists():
+        js.write_text("// Page behaviour (ES module).\n", encoding="utf-8")
+
+
 def scaffold(root, plan, preset):
     root = Path(root)
     run = lambda *c: subprocess.run(list(c), cwd=root, capture_output=True, text=True)
@@ -386,10 +441,13 @@ def scaffold(root, plan, preset):
                         run("cargo", "add", *d.split())
         if preset.get("android"):
             scaffold_android(root, plan, preset, name)
+    if preset.get("web"):
+        _web_starter(root, plan, server_side=preset["rust"])
     (root / ".gitignore").write_text("target/\nnode_modules/\ndist/\n.env\n", encoding="utf-8") if not (root / ".gitignore").exists() else None
     (root / "ai-kit.json").write_text(json.dumps({"test_cmd": None, "max_rounds": 4, "step_retries": 3,
                                                   "mutation_testing": preset["rust"], "best_of_n": 3,
-                                                  "corpus_categories": FOCUS.get(preset.get("android") or "", []),
+                                                  "corpus_categories": FOCUS.get(preset.get("android") or (
+                                                      "web" if preset.get("web") else ""), []),
                                                   "reference_budget": 1800}, indent=2), encoding="utf-8")
     run("git", "add", "-A")
     run("git", "-c", "user.name=Windmill", "-c", "user.email=windmill@localhost", "commit", "-q", "-m", "windmill: new project")

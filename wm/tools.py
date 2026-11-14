@@ -343,6 +343,11 @@ class Tools:
 
     def t_design_brief(self):
         b = design.load(self.root)
+        theme = self.root / ("static/css/theme.css" if (self.root / "Cargo.toml").exists() else "css/theme.css")
+        if b and design.is_web_project(self.root) and not theme.exists():  # older website: add the daisyUI theme
+            design.write_web_theme(self.root)
+            b += (f"\n\nNOTE: {self.rel(theme)} was just created from this brief. This site doesn't use Tailwind + "
+                  "daisyUI yet - add the <head> lines above to its pages and move to daisyUI components as you touch them.")
         return (b or "No design brief yet for this project - follow the rules below and choose a distinctive, "
                 "consistent direction.") + "\n\n" + design.UI_RULES
 
