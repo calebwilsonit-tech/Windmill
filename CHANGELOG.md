@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.0 - 2026-11-14 (minor)
+- feat: the phone app updates itself from your computer (one tap, only when the app itself changed); message box hint always fits
+- (released automatically from the commit messages)
+
 ## 1.10.0 - 2026-11-14 (minor)
 - feat: Windmill on your phone - Android app that pairs with your computer (Wi-Fi discovery + 6-digit code, or Tailscale), phone-sized interface, Phone page with QR install
 - (released automatically from the commit messages)
