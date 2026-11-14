@@ -23,7 +23,22 @@ BIN = config.KIT / "bin"
 STATE_DIR = config.HOME / "tailscale"
 PIDFILE = config.HOME / "tunnel.pid"
 LOG = config.LOGS / "tunnel.log"
-_s = {"proc": None, "state": "off", "url": "", "message": ""}
+_s = {"proc": None, "state": "off", "url": "", "message": "", "step": "", "interactive": False, "opened": set()}
+
+
+def _open_in_browser(url):
+    """Open Tailscale's sign-in / approval page for the user (only for a setup they just started)."""
+    if not url or not _s.get("interactive") or url in _s["opened"]:
+        return
+    _s["opened"].add(url)
+    try:
+        if os.name == "nt":
+            os.startfile(url)  # noqa: S606 - the user's default browser
+        else:
+            import webbrowser
+            webbrowser.open(url)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _asset():
@@ -88,17 +103,23 @@ def _read(proc):
             ev = json.loads(raw.decode("utf-8", errors="replace"))
         except ValueError:
             continue
-        _s.update(state=ev.get("state", _s["state"]), url=ev.get("url", ""), message=ev.get("message", ""))
+        _s.update(state=ev.get("state", _s["state"]), url=ev.get("url", ""), message=ev.get("message", ""),
+                  step=ev.get("step", ""))
+        if ev.get("state") in ("login", "setup"):
+            _open_in_browser(ev.get("url", ""))
         if ev.get("state") == "ready":
             config.set_value("tunnel_url", ev.get("url", ""))
+            _s["interactive"] = False
     code = proc.wait()
     if _s.get("proc") is proc:
         _s.update(proc=None, state="error" if code else "off",
                   message=_s.get("message") or (f"the connection stopped (code {code})" if code else ""))
 
 
-def start(port=8765):
-    """Start (or keep) the connection. Returns None, or a reason it can't start."""
+def start(port=8765, interactive=False):
+    """Start (or keep) the connection. Returns None, or a reason it can't start.
+    interactive: the user just clicked Turn on - open sign-in / approval pages in their browser by themselves."""
+    _s["interactive"] = interactive or _s.get("interactive", False)
     if _s.get("proc") and _s["proc"].poll() is None:
         return None
     _s.update(state="downloading", url="", message="")
@@ -135,7 +156,7 @@ def stop():
 
 def status():
     url = _s["url"] if _s["state"] == "ready" else ""
-    return {"state": _s["state"], "url": _s["url"], "message": _s["message"], "public": url or ""}
+    return {"state": _s["state"], "url": _s["url"], "message": _s["message"], "step": _s.get("step", ""), "public": url or ""}
 
 
 def public_url():

@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -77,11 +78,32 @@ func main() {
 		time.Sleep(time.Second)
 	}
 
-	ln, err := srv.ListenFunnel("tcp", ":443") // public HTTPS (certificate handled by Tailscale)
-	if err != nil {
+	// Public HTTPS (certificate handled by Tailscale). A new Tailscale network needs two switches on Tailscale's
+	// site first (HTTPS certificates, then Funnel) - say which, link straight to it, and keep trying, so it comes up
+	// by itself as soon as the user flips them.
+	var ln net.Listener
+	lastMsg := ""
+	for {
+		ln, err = srv.ListenFunnel("tcp", ":443")
+		if err == nil {
+			break
+		}
 		msg := err.Error()
-		say(map[string]string{"state": "error", "message": msg, "url": linkRe.FindString(msg)})
-		os.Exit(2)
+		if msg != lastMsg {
+			lastMsg = msg
+			st, _ := lc.Status(ctx)
+			fix, step := linkRe.FindString(msg), ""
+			low := strings.ToLower(msg)
+			switch {
+			case st != nil && st.Self != nil && (strings.Contains(low, "https") || strings.Contains(low, "funnel")):
+				// Tailscale's own one-click approval page for this device: turns on HTTPS certificates AND Funnel
+				fix, step = "https://login.tailscale.com/f/funnel?node="+string(st.Self.ID), "approve"
+			case strings.Contains(low, "https"):
+				fix, step = "https://login.tailscale.com/admin/dns", "https"
+			}
+			say(map[string]string{"state": "setup", "step": step, "message": msg, "url": fix})
+		}
+		time.Sleep(5 * time.Second)
 	}
 	st, _ := lc.Status(ctx)
 	name := strings.TrimSuffix(st.Self.DNSName, ".")

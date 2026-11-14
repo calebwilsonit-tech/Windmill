@@ -1040,15 +1040,20 @@ async function loadPhone(info) {
   const on = t.enabled && t.state !== "off";
   st.innerHTML = !on ? "" :
     t.state === "ready" ? `<div class="ok">✓ Reachable anywhere at <code>${esc(t.url)}</code> - paired phones switch to it by themselves when they're away.</div>` :
-    t.state === "login" ? `<div><b>Sign in to Tailscale</b> to finish (once):</div><a class="primary btn-link" href="${esc(t.url)}" target="_blank" rel="noopener">Sign in to Tailscale</a>
-      <div class="muted small">No account yet? The same page lets you create a free one.</div>` :
+    t.state === "login" ? `<div><b>Sign in to Tailscale</b> in the browser window that just opened (once). No account yet? That page lets you create a free one.</div>
+      <a class="ghost btn-link" href="${esc(t.url)}" target="_blank" rel="noopener">Open the sign-in page again</a>` :
+    t.state === "setup" ? `<div><b>Last step:</b> in the Tailscale page that just opened, click <b>Enable</b> - it switches on secure (HTTPS) addresses
+      and Funnel for this computer. Windmill connects by itself as soon as you do.</div>` +
+      (t.url ? `<a class="ghost btn-link" href="${esc(t.url)}" target="_blank" rel="noopener">Open the Tailscale page again</a>` : "") +
+      (t.step === "https" ? `<div class="muted small">On that page: make sure <b>MagicDNS</b> is on, then under <b>HTTPS Certificates</b> click <b>Enable HTTPS</b>.</div>` : "") +
+      `<div class="row"><div class="spinner"></div><span class="muted small">Waiting for Tailscale…</span></div>` :
     t.state === "error" ? `<div class="bad-text">${esc(t.message || "Something went wrong.")}</div>` +
       (t.url ? `<a class="ghost btn-link" href="${esc(t.url)}" target="_blank" rel="noopener">Fix it on Tailscale's site</a>` : "") +
       (/funnel/i.test(t.message || "") ? `<div class="muted small">Tailscale asks you to switch on "Funnel" once - open the link, allow it, then turn this off and on again.</div>` : "") :
     `<div class="row"><div class="spinner"></div><span class="muted">${t.state === "downloading" ? "Getting the Tailscale helper (one time, ~20 MB)…" : "Connecting…"}</span></div>`;
   $("#tunnel-on").classList.toggle("hidden", on);
   $("#tunnel-off").classList.toggle("hidden", !on);
-  clearTimeout(S.phoneT); S.phoneT = setTimeout(() => { if (S.view === "phone") loadPhone(); }, on && t.state !== "ready" ? 2000 : 15000);
+  clearTimeout(S.phoneT); S.phoneT = setTimeout(() => { if (S.view === "phone") loadPhone(); }, on && t.state !== "ready" ? 2500 : 15000);
 }
 $("#tunnel-on").onclick = async () => loadPhone(await api("/api/phone", { action: "tunnel_on" }));
 $("#tunnel-off").onclick = async () => loadPhone(await api("/api/phone", { action: "tunnel_off" }));

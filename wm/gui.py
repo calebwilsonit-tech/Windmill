@@ -1141,7 +1141,7 @@ def phone_action(b):
     elif act == "tunnel_on":
         from . import tunnel
         config.set_value("tunnel", True)
-        threading.Thread(target=tunnel.start, daemon=True).start()
+        threading.Thread(target=tunnel.start, kwargs={"interactive": True}, daemon=True).start()
         time.sleep(0.3)
     elif act == "tunnel_off":
         from . import tunnel
