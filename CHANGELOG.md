@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.12.0 - 2026-11-14 (minor)
+- feat: Tailscale built in - reach Windmill from your phone anywhere with nothing to install (sign in once); pairing stays home-only; fix: runtime files in bin/ never block updates
+- (released automatically from the commit messages)
+
 ## 1.11.0 - 2026-11-14 (minor)
 - feat: the phone app updates itself from your computer (one tap, only when the app itself changed); message box hint always fits
 - (released automatically from the commit messages)
