@@ -1048,8 +1048,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": "Do that on the computer."}, 403)
         if path == "/api/shutdown":
             try:
-                from . import tunnel
+                from . import server as model_server, tunnel
                 tunnel.stop()
+                if not b.get("keep_model"):
+                    model_server.stop(quiet=True)  # Quit frees the AI model's memory too
             except Exception:  # noqa: BLE001
                 pass
             self._json({"ok": True})

@@ -99,6 +99,10 @@ static class WindmillApp
         startup.Checked = StartsWithWindows();
         startup.Click += delegate { SetStartsWithWindows(!startup.Checked); startup.Checked = StartsWithWindows(); };
         menu.Items.Add(startup);
+        menu.Items.Add(new ToolStripMenuItem("Free AI memory (unload the model)", null, delegate {
+            Http("POST", "api/server/stop");
+            tray.ShowBalloonTip(3000, "Windmill", "The AI model is unloaded - its memory is free. It loads again when you next use it.", ToolTipIcon.Info);
+        }));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Quit Windmill", null, delegate { Quit(); }));
         tray.ContextMenuStrip = menu;
