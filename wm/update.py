@@ -106,7 +106,11 @@ def apply(tag, src, quiet=False):
     old = version.current()
     before = _manifest_names()
     if (KIT / ".git").exists():
+        # bin/ holds things Windmill downloads or builds for this PC (the app, the phone app, helpers). Version 1.11.0
+        # accidentally tracked two of them in git; reset those so they never block an update.
+        git("checkout", "-q", "--", "bin")
         rc, dirty, _ = git("status", "--porcelain", "--untracked-files=no")
+        dirty = "\n".join(l for l in dirty.splitlines() if not l[3:].startswith("bin/"))
         if dirty:
             ui.warn("Windmill's own files were edited locally - not updating automatically (run windmill update to see).")
             return False

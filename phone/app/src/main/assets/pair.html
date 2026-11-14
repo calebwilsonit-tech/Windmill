@@ -97,6 +97,10 @@ async function pair() {
     const j = await r.json();
     if (!j.token) return msg(j.error || "That didn't work - try again.", true);
     WindmillApp.save(chosen.base, j.token);
+    try {  // the computer's anywhere-address (if it has one), for when this phone is away from home
+      const h = await (await fetch(chosen.base + "/api/phone/hello", { cache: "no-store" })).json();
+      WindmillApp.setRemote(h.remote || "");
+    } catch (e) { }
     msg("Paired! Opening Windmill…");
     location.href = chosen.base + "/?dev=" + encodeURIComponent(j.token);
   } catch (e) {

@@ -114,3 +114,31 @@ jobs:
         run: |
           v=$(cat VERSION | tr -d '[:space:]')
           gh release upload "v$v" WindmillPhone.apk WindmillPhone.code --clobber
+
+  # Tailscale built into Windmill: the windmill-tunnel helper (tunnel/, Go + tsnet) for each kind of computer.
+  tunnel:
+    needs: [release, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tunnel/go.mod
+          cache-dependency-path: tunnel/go.sum
+      - name: Build windmill-tunnel
+        working-directory: tunnel
+        run: |
+          set -e
+          for t in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
+            os=${t%/*}; arch=${t#*/}; ext=""; [ "$os" = windows ] && ext=".exe"
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "../WindmillTunnel-$os-$arch$ext" .
+          done
+          ls -la ../WindmillTunnel-*
+      - name: Attach to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(cat VERSION | tr -d '[:space:]')
+          gh release upload "v$v" WindmillTunnel-* --clobber

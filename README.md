@@ -131,9 +131,16 @@ queue messages, much like the Claude phone app.
 3. **Pair:** open Windmill on the phone. It finds the computer on the Wi-Fi by itself; type the 6-digit code shown
    on the computer's Phone page.
 
-**Away from home:** install **Tailscale** (free) on the computer and the phone and sign in to both with the same
-account. Then, in the phone app, use **Enter address** with the Tailscale address shown on the Phone page. It's
-encrypted end to end. On public Wi-Fi, use Tailscale rather than the Wi-Fi address.
+**Away from home (nothing to install):** on the Phone page, turn on **Use it anywhere**. Tailscale is built into
+Windmill (a small helper downloaded from the release), so you only **sign in once** with a free Tailscale account
+(Google, Microsoft or GitHub). Tailscale may also ask you to switch on its *Funnel* feature once. Windmill then gets
+a permanent private HTTPS address like `https://windmill-yourpc.tail1234.ts.net`, and paired phones use it
+automatically whenever they're not on your home Wi-Fi: mobile data, other Wi-Fi, anywhere. Nothing is needed on the
+phone. Over that address, **only phones you've already paired get in, and pairing new phones only works at home**,
+so nobody can guess their way in. The helper's source is in `tunnel/` (Go + Tailscale's tsnet).
+
+**Updates:** the phone shows the computer's Windmill, so it's always the current version. The small app itself
+offers a one-tap update (from your computer) only when the app's own code changed.
 
 **Security:** it's off until you switch it on. Only paired phones get in; each has its own key (the computer stores
 only a fingerprint of it), and you can remove a phone any time. Pairing codes expire after 10 minutes and stop

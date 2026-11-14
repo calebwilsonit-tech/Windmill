@@ -257,6 +257,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .setup-item input { margin-top: 3px; }
 /* phone */
 .big-switch { font-size: 15px; margin: 8px 0 14px; }
+.phone-card.anywhere { margin-bottom: 14px; display: grid; gap: 8px; }
+.tunnel-status { display: grid; gap: 8px; }
+.tunnel-status .ok { color: var(--ok); }
+.btn-link { display: inline-block; text-decoration: none; padding: 8px 14px; border-radius: 9px; width: fit-content; }
+a.primary.btn-link { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+a.ghost.btn-link { border: 1px solid var(--line); color: var(--text); }
 .phone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 @media (max-width: 900px) { .phone-grid { grid-template-columns: 1fr; } }
 .phone-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }

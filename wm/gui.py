@@ -651,7 +651,8 @@ class Handler(BaseHTTPRequestHandler):
             m = re.search(r"wm_dev=([\w-]+)", cookie)
             did = phone.check_token(self.headers.get("X-Windmill-Device") or (m.group(1) if m else ""))
             origin = self.headers.get("Origin")
-            if did and (not origin or origin == f"http://{self.headers.get('Host', '')}"):
+            host = self.headers.get("Host", "")
+            if did and (not origin or origin in (f"http://{host}", f"https://{host}")):
                 phone.touch(did)
                 return True
             return False
@@ -705,9 +706,14 @@ class Handler(BaseHTTPRequestHandler):
     def _phone_open(self, path, q, body=None):
         """Phone entry point, no key needed: hello (discovery check), pairing, and the app's install file."""
         from . import phone
+        from . import tunnel
+        via_internet = self.headers.get("X-Windmill-Via") == "tunnel"
         if path == "/api/phone/hello":
             data = json.dumps({"windmill": True, "name": socket.gethostname()[:40], "version": version.current(),
-                               "app": phone.app_code()}).encode()
+                               "app": phone.app_code(), "remote": tunnel.public_url()}).encode()
+        elif path == "/api/phone/pair" and via_internet:  # never over the internet: guessing codes must stay local
+            data = json.dumps({"error": "Pair this phone at home, on the same Wi-Fi as your computer. "
+                                        "After that it works from anywhere."}).encode()
         elif path == "/api/phone/pair" and body is not None:
             tok = phone.pair(body.get("code"), body.get("name") or "Phone")
             time.sleep(0.4 if tok else 1.2)  # slows down guessing
@@ -1022,6 +1028,11 @@ class Handler(BaseHTTPRequestHandler):
         if self._phone() and path in ("/api/shutdown", "/api/phone", "/api/pick-folder", "/api/update/apply"):
             return self._json({"error": "Do that on the computer."}, 403)
         if path == "/api/shutdown":
+            try:
+                from . import tunnel
+                tunnel.stop()
+            except Exception:  # noqa: BLE001
+                pass
             self._json({"ok": True})
             threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
             return
@@ -1070,8 +1081,9 @@ def restart():
     time.sleep(0.5)
     STATE["restarting"] = True
     try:
-        from . import phone
+        from . import phone, tunnel
         phone.stop()
+        tunnel.stop()
     except Exception:  # noqa: BLE001
         pass
     srv = STATE.get("httpd")
@@ -1103,13 +1115,13 @@ def idle_watch():
 
 
 def phone_info():
-    from . import phone
+    from . import phone, tunnel
     c, ttl = phone.code() if phone.running() else (None, 0)
     return {"enabled": bool(config.load().get("phone_access")), "running": phone.running(), "port": phone.PORT,
             "code": c, "ttl": ttl, "addresses": phone.addresses() if phone.running() else [],
             "devices": [{"id": k, "name": v.get("name"), "added": v.get("added"), "seen": v.get("seen")}
                         for k, v in phone.devices().items()],
-            "apk": phone.APK.exists()}
+            "apk": phone.APK.exists(), "tunnel": {**tunnel.status(), "enabled": bool(config.load().get("tunnel"))}}
 
 
 def phone_action(b):
@@ -1124,6 +1136,17 @@ def phone_action(b):
     elif act == "disable":
         config.set_value("phone_access", False)
         phone.stop()
+        from . import tunnel
+        tunnel.stop()
+    elif act == "tunnel_on":
+        from . import tunnel
+        config.set_value("tunnel", True)
+        threading.Thread(target=tunnel.start, daemon=True).start()
+        time.sleep(0.3)
+    elif act == "tunnel_off":
+        from . import tunnel
+        config.set_value("tunnel", False)
+        tunnel.stop()
     elif act == "new_code":
         phone.code(new=True)
     elif act == "remove":
@@ -1152,6 +1175,9 @@ def serve(port=None, token=None, block=True):
         from . import phone
         if phone.start(Handler) is None:
             threading.Thread(target=phone.apk_path, daemon=True).start()
+            if config.load().get("tunnel"):
+                from . import tunnel
+                threading.Thread(target=tunnel.start, daemon=True).start()
     if block:
         httpd.serve_forever()
         while STATE.get("restarting"):  # restart() is starting the new engine - don't let Python exit under it

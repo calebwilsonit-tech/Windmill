@@ -59,9 +59,10 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 Uri u = req.getUrl();
-                String base = prefs.getString("base", "");
+                String base = prefs.getString("base", ""), remote = prefs.getString("remote", "");
+                String url = u.toString();
                 if (u.getScheme() != null && u.getScheme().startsWith("http") && !base.isEmpty()
-                        && !u.toString().startsWith(base)) {
+                        && !url.startsWith(base) && (remote.isEmpty() || !url.startsWith(remote))) {
                     startActivity(new Intent(Intent.ACTION_VIEW, u));  // other websites open in the browser
                     return true;
                 }
@@ -95,7 +96,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        String base = prefs.getString("base", "");
+        String base = current.isEmpty() ? prefs.getString("base", "") : current;
         if (updateChecked || base.isEmpty()) return;
         updateChecked = true;
         new Thread(() -> {
@@ -165,13 +166,45 @@ public class MainActivity extends Activity {
         return out.toByteArray();
     }
 
+    /** Open Windmill by whichever route works: the home Wi-Fi address first (fastest), else the anywhere-address. */
     private void open() {
         String base = prefs.getString("base", "");
         String token = prefs.getString("token", "");
         if (base.isEmpty() || token.isEmpty()) {
             web.loadUrl("file:///android_asset/pair.html");
-        } else {
-            web.loadUrl(base + "/?dev=" + Uri.encode(token));
+            return;
+        }
+        new Thread(() -> {
+            String remote = prefs.getString("remote", "");
+            String chosen = null;
+            JSONObject hello = hello(base, 1500);
+            if (hello != null) {
+                chosen = base;
+                String r = hello.optString("remote", "");  // keep the anywhere-address up to date while at home
+                if (!r.isEmpty() && !r.equals(remote)) prefs.edit().putString("remote", r).apply();
+            } else if (!remote.isEmpty() && hello(remote, 8000) != null) {
+                chosen = remote;
+            }
+            final String go = chosen;
+            runOnUiThread(() -> {
+                current = go == null ? base : go;
+                if (go == null) web.loadUrl("file:///android_asset/offline.html");
+                else web.loadUrl(go + "/?dev=" + Uri.encode(token));
+            });
+        }).start();
+    }
+
+    private String current = "";
+
+    private static JSONObject hello(String base, int timeoutMs) {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "/api/phone/hello").openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            JSONObject j = new JSONObject(new String(readAll(c.getInputStream()), StandardCharsets.UTF_8));
+            return j.optBoolean("windmill") ? j : null;
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -240,6 +273,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void setRemote(String remote) {
+            prefs.edit().putString("remote", remote == null ? "" : remote).apply();
+        }
+
+        @JavascriptInterface
         public void forget() {
             prefs.edit().clear().apply();
             CookieManager.getInstance().removeAllCookies(null);
@@ -253,7 +291,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String computer() {
-            return prefs.getString("base", "");
+            return current.isEmpty() ? prefs.getString("base", "") : current;
+        }
+
+        @JavascriptInterface
+        public String remote() {
+            return prefs.getString("remote", "");
         }
 
         @JavascriptInterface

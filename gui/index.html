@@ -214,11 +214,16 @@
             <div class="row"><span class="muted small" id="phone-ttl"></span><button class="ghost small" id="phone-newcode">New code</button></div>
           </div>
         </div>
+        <div class="phone-card anywhere">
+          <h3>3. Use it anywhere <span class="muted small">(optional)</span></h3>
+          <p class="muted small">Your phone reaches this computer from anywhere - mobile data, other Wi-Fi - over an encrypted, private address.
+          Nothing to install: Tailscale is built in. You sign in once with a free Tailscale account (Google, Microsoft or GitHub).
+          New phones still pair at home only; over the internet only phones you've already paired get in.</p>
+          <div id="tunnel-status" class="tunnel-status"></div>
+          <div class="row"><button class="primary" id="tunnel-on">Turn on</button><button class="ghost hidden" id="tunnel-off">Turn off</button></div>
+        </div>
         <h3>This computer's addresses</h3>
         <div id="phone-addrs" class="list"></div>
-        <p class="muted small">Away from home: install <b>Tailscale</b> (free) on this computer and your phone and sign in to both with the
-        same account. Then use the Tailscale address above in the phone app (<i>Enter address</i>). It's encrypted end to end.
-        On public Wi-Fi, use Tailscale rather than the Wi-Fi address.</p>
         <h3>Paired phones</h3>
         <div id="phone-devices" class="list"></div>
       </div>

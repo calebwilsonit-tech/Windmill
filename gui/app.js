@@ -1035,8 +1035,23 @@ async function loadPhone(info) {
     <span class="muted small" style="flex:1">paired ${ago(d.added)} · last used ${d.seen ? ago(d.seen) : "never"}</span>
     <button class="ghost small" data-rm="${d.id}">Remove</button></div>`).join("") || `<div class="muted small">No phones paired yet.</div>`;
   $$("#phone-devices [data-rm]").forEach(b => b.onclick = async () => { if (confirm("Remove this phone? It will need to pair again.")) loadPhone(await api("/api/phone", { action: "remove", id: b.dataset.rm })); });
-  clearTimeout(S.phoneT); S.phoneT = setTimeout(() => { if (S.view === "phone") loadPhone(); }, 15000);
+  const t = r.tunnel || {};
+  const st = $("#tunnel-status");
+  const on = t.enabled && t.state !== "off";
+  st.innerHTML = !on ? "" :
+    t.state === "ready" ? `<div class="ok">✓ Reachable anywhere at <code>${esc(t.url)}</code> - paired phones switch to it by themselves when they're away.</div>` :
+    t.state === "login" ? `<div><b>Sign in to Tailscale</b> to finish (once):</div><a class="primary btn-link" href="${esc(t.url)}" target="_blank" rel="noopener">Sign in to Tailscale</a>
+      <div class="muted small">No account yet? The same page lets you create a free one.</div>` :
+    t.state === "error" ? `<div class="bad-text">${esc(t.message || "Something went wrong.")}</div>` +
+      (t.url ? `<a class="ghost btn-link" href="${esc(t.url)}" target="_blank" rel="noopener">Fix it on Tailscale's site</a>` : "") +
+      (/funnel/i.test(t.message || "") ? `<div class="muted small">Tailscale asks you to switch on "Funnel" once - open the link, allow it, then turn this off and on again.</div>` : "") :
+    `<div class="row"><div class="spinner"></div><span class="muted">${t.state === "downloading" ? "Getting the Tailscale helper (one time, ~20 MB)…" : "Connecting…"}</span></div>`;
+  $("#tunnel-on").classList.toggle("hidden", on);
+  $("#tunnel-off").classList.toggle("hidden", !on);
+  clearTimeout(S.phoneT); S.phoneT = setTimeout(() => { if (S.view === "phone") loadPhone(); }, on && t.state !== "ready" ? 2000 : 15000);
 }
+$("#tunnel-on").onclick = async () => loadPhone(await api("/api/phone", { action: "tunnel_on" }));
+$("#tunnel-off").onclick = async () => loadPhone(await api("/api/phone", { action: "tunnel_off" }));
 $("#phone-on").onchange = async e => loadPhone(await api("/api/phone", { action: e.target.checked ? "enable" : "disable" }));
 $("#phone-newcode").onclick = async () => loadPhone(await api("/api/phone", { action: "new_code" }));
 
