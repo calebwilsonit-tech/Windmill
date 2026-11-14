@@ -11,7 +11,9 @@ android {
         applicationId "com.windmill.phone"
         minSdk 26
         targetSdk 34
-        versionCode parts[0] * 10000 + parts[1] * 100 + parts[2]
+        // Goes up only when the phone app's own code changes (the release counts the commits touching phone/),
+        // so phones are offered an update only when there's really something new in the app itself.
+        versionCode((project.findProperty("phoneCode") ?: "1").toString().toInteger())
         versionName wmVersion
     }
     signingConfigs {

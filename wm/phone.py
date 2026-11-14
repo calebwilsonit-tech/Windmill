@@ -214,10 +214,25 @@ def apk_path():
                 APK.parent.mkdir(parents=True, exist_ok=True)
                 APK.write_bytes(data)
                 APK.with_suffix(".version").write_text(_version())
+                try:  # the app's own version number (goes up only when the phone app's code changes)
+                    with urllib.request.urlopen(urllib.request.Request(url.replace("WindmillPhone.apk", "WindmillPhone.code"),
+                                                                       headers={"User-Agent": "windmill"}), timeout=30) as r:
+                        APK.with_suffix(".code").write_text(str(int(r.read().decode().strip())))
+                except Exception:  # noqa: BLE001
+                    pass
                 return APK
         except Exception:  # noqa: BLE001
             continue
     return APK if APK.exists() else None
+
+
+def app_code():
+    """Version number of the phone app this computer can hand out (0 = none yet)."""
+    f = APK.with_suffix(".code")
+    try:
+        return int(f.read_text().strip()) if APK.exists() and f.exists() else 0
+    except ValueError:
+        return 0
 
 
 def _version():

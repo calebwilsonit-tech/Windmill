@@ -87,6 +87,84 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------------ updating this app from the computer
+    // Everything you see comes from the computer, so it's always current. Only this small app (pairing, discovery,
+    // the offline screen) is installed on the phone; when the computer has a newer one, offer it once per start.
+    private boolean updateChecked = false;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        String base = prefs.getString("base", "");
+        if (updateChecked || base.isEmpty()) return;
+        updateChecked = true;
+        new Thread(() -> {
+            try {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "/api/phone/hello").openConnection();
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(4000);
+                String body = new String(readAll(c.getInputStream()), StandardCharsets.UTF_8);
+                int latest = new JSONObject(body).optInt("app", 0);
+                long mine = getPackageManager().getPackageInfo(getPackageName(), 0).getLongVersionCode();
+                if (latest > mine && latest != prefs.getInt("skipped", 0)) {
+                    runOnUiThread(() -> new android.app.AlertDialog.Builder(this)
+                            .setTitle("Update the Windmill app?")
+                            .setMessage("Your computer has a newer version of this app. It installs over this one - you stay paired.")
+                            .setPositiveButton("Update", (d, w) -> new Thread(() -> install(base)).start())
+                            .setNegativeButton("Not now", (d, w) -> prefs.edit().putInt("skipped", latest).apply())
+                            .show());
+                }
+            } catch (Exception ignored) { }
+        }).start();
+    }
+
+    private void install(String base) {
+        try {
+            android.content.pm.PackageInstaller pi = getPackageManager().getPackageInstaller();
+            int id = pi.createSession(new android.content.pm.PackageInstaller.SessionParams(
+                    android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL));
+            try (android.content.pm.PackageInstaller.Session s = pi.openSession(id)) {
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(base + "/phone.apk").openConnection();
+                c.setConnectTimeout(8000);
+                try (java.io.InputStream in = c.getInputStream(); java.io.OutputStream out = s.openWrite("windmill.apk", 0, -1)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    s.fsync(out);
+                }
+                Intent done = new Intent(this, MainActivity.class).setAction("com.windmill.phone.INSTALL");
+                android.app.PendingIntent p = android.app.PendingIntent.getActivity(this, 1, done,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_MUTABLE);
+                s.commit(p.getIntentSender());
+            }
+        } catch (Exception e) {
+            runOnUiThread(() -> android.widget.Toast.makeText(this, "Couldn't download the update - is the computer still reachable?",
+                    android.widget.Toast.LENGTH_LONG).show());
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (!"com.windmill.phone.INSTALL".equals(intent.getAction())) return;
+        int status = intent.getIntExtra(android.content.pm.PackageInstaller.EXTRA_STATUS, -999);
+        if (status == android.content.pm.PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);  // Android's own "Update this app?" screen
+            if (confirm != null) startActivity(confirm);
+        } else if (status != android.content.pm.PackageInstaller.STATUS_SUCCESS) {
+            android.widget.Toast.makeText(this, "The update didn't install: " +
+                    intent.getStringExtra(android.content.pm.PackageInstaller.EXTRA_STATUS_MESSAGE), android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static byte[] readAll(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        return out.toByteArray();
+    }
+
     private void open() {
         String base = prefs.getString("base", "");
         String token = prefs.getString("token", "");

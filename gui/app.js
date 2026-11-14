@@ -294,10 +294,21 @@ function renderQueue() {
     await api("/api/roadmap", { action: "add", text: t });
     addMsg("note", "＋ Added to the build plan: " + esc(t), "note ok"); renderQueue();
   });
-  const narrow = innerWidth < 760;
-  $("#input").placeholder = S.busy ? (narrow ? "Working - type to queue a message" : "Windmill is working - type to queue your next message (Enter)")
-    : (narrow ? "Message Windmill…" : "Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)");
+  fitHint();
 }
+// The hint in the message box: the longest version that fits on one line at the box's current width.
+function fitHint() {
+  const box = $("#input");
+  const options = S.busy
+    ? ["Windmill is working - type to queue your next message (Enter)", "Working - type to queue a message", "Queue a message…"]
+    : ["Tell Windmill what you want…  (Enter to send, Shift+Enter for a new line)", "Tell Windmill what you want…", "Message Windmill…"];
+  const cs = getComputedStyle(box);
+  const room = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 4;
+  const ctx = (fitHint.c = fitHint.c || document.createElement("canvas").getContext("2d"));
+  ctx.font = `${cs.fontSize} ${cs.fontFamily}`;
+  box.placeholder = options.find(t => ctx.measureText(t).width <= room) || options[options.length - 1];
+}
+new ResizeObserver(() => fitHint()).observe($("#input"));
 function sendQueued() {
   const q = S.queue[S.chat] || [];
   renderQueue();

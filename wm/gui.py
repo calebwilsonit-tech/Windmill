@@ -706,7 +706,8 @@ class Handler(BaseHTTPRequestHandler):
         """Phone entry point, no key needed: hello (discovery check), pairing, and the app's install file."""
         from . import phone
         if path == "/api/phone/hello":
-            data = json.dumps({"windmill": True, "name": socket.gethostname()[:40], "version": version.current()}).encode()
+            data = json.dumps({"windmill": True, "name": socket.gethostname()[:40], "version": version.current(),
+                               "app": phone.app_code()}).encode()
         elif path == "/api/phone/pair" and body is not None:
             tok = phone.pair(body.get("code"), body.get("name") or "Phone")
             time.sleep(0.4 if tok else 1.2)  # slows down guessing

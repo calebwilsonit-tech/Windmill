@@ -103,12 +103,14 @@ jobs:
       - name: Build WindmillPhone.apk
         run: |
           v=$(cat VERSION | tr -d '[:space:]')
-          gradle -p phone --no-daemon assembleDebug -PwmVersion="$v"
+          code=$((100000 + $(git rev-list --count HEAD -- phone)))   # goes up only when the phone app itself changes
+          gradle -p phone --no-daemon assembleDebug -PwmVersion="$v" -PphoneCode="$code"
           cp phone/app/build/outputs/apk/debug/app-debug.apk WindmillPhone.apk
+          echo "$code" > WindmillPhone.code
           ls -la WindmillPhone.apk
       - name: Attach to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(cat VERSION | tr -d '[:space:]')
-          gh release upload "v$v" WindmillPhone.apk --clobber
+          gh release upload "v$v" WindmillPhone.apk WindmillPhone.code --clobber

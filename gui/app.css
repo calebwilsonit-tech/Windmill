@@ -98,6 +98,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .ask { background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .ask input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
 #composer { border-top: 1px solid var(--line); padding: 12px max(28px, calc(50% - 400px)) 16px; background: var(--bg); }
+#input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #input { width: 100%; resize: none; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--panel); max-height: 240px; box-shadow: var(--shadow); }
 .composer-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .composer-row .muted { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
