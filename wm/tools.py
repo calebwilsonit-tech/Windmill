@@ -76,7 +76,8 @@ def tool_specs():
 
 
 class Tools:
-    def __init__(self, root, interactive=True, permission="auto", ask=None, plugins=None):
+    def __init__(self, root, interactive=True, permission="auto", ask=None, plugins=None, only=None):
+        self.only = set(only) if only else None  # chat mode: just these tools
         self.root = Path(root).resolve()
         self.interactive = interactive
         self.permission = permission
@@ -100,9 +101,14 @@ class Tools:
         specs = tool_specs()
         if not config.load().get("web_access", True):
             specs = [s for s in specs if s["function"]["name"] not in ("web_search", "fetch_url")]
+        if self.only is not None:
+            return [s for s in specs if s["function"]["name"] in self.only]
         return specs + (self.plugins.specs() if self.plugins else [])
 
     def call(self, name, args):
+        if self.only is not None and name not in self.only:
+            return (f"ERROR: '{name}' isn't available in Chat mode. If the user wants project work done, tell them to "
+                    "switch this chat to Code.")
         if name.startswith("mcp__") and self.plugins and name in self.plugins.tools:
             try:
                 out = self.plugins.call(name, args)

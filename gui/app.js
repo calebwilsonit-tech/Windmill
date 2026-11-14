@@ -162,7 +162,9 @@ async function openChat(id) {
     else if (m.role === "result") { setResult(lastTool, lastTool?._n, m.text); lastTool = null; }
     else if (m.role === "debugger") addMsg("debugger", "⚑ " + esc(m.text.split("\n").slice(0, 3).join("\n")), "debugger");
   }
-  if (!data.messages.length) addMsg("note", `New chat in <b>${esc(data.project)}</b>. Ask for anything - a feature, a fix, a question about the code.`, "note");
+  if (!data.messages.length) addMsg("note", chatRole() === "code"
+    ? `Code mode in <b>${esc(data.project)}</b>: ask for a feature, a fix, or anything about the code.`
+    : `Ask me anything - questions, writing, rewriting an essay. Switch to <b>🛠 Code</b> below to build or change a project.`, "note");
   t.scrollTop = t.scrollHeight;
   cur = { text: null, tool: null, think: null, thought: null };
   setBusy(data.busy);
@@ -171,9 +173,9 @@ async function openChat(id) {
   $("#input").focus();
 }
 
-async function newChat() {
+async function newChat(mode) {
   const r = await api("/api/chats", {});
-  if (r.id) await openChat(r.id);
+  if (r.id) { if (mode === "code") S.roles[r.id] = "code"; await openChat(r.id); renderRole(); }
 }
 $("#new-chat").onclick = newChat;
 
@@ -569,7 +571,7 @@ document.addEventListener("click", e => {
   const t = e.target.closest("[data-task]");
   if (t) { e.preventDefault(); runTask(splitArgs(t.dataset.task)); }
   const a = e.target.closest("[data-action=chat]");
-  if (a) newChat();
+  if (a) newChat("code");
 });
 
 // ---------------------------------------------------------------- command palette (Ctrl+K)
@@ -1077,16 +1079,18 @@ $("#sidebar").addEventListener("click", e => { if (e.target.closest(".nav, .chat
 renderQueue();
 
 
-// ---------------------------------------------------------------- which model a chat uses (when a chat model is set)
+// ---------------------------------------------------------------- each chat's mode: 💬 Chat (assistant) or 🛠 Code (builder)
 S.roles = {};
-function chatRole() { return S.state.chat_model ? (S.roles[S.chat] || "chat") : "code"; }
+function chatRole() { return S.roles[S.chat] || "chat"; }
 function renderRole() {
   const b = $("#role-btn");
-  b.classList.toggle("hidden", !S.state.chat_model || !!S.chatBuild);
+  b.classList.toggle("hidden", !!S.chatBuild);
   const r = chatRole();
-  b.textContent = r === "chat" ? "💬 Chat model" : "🛠 Coding model";
-  b.title = r === "chat" ? `Using ${S.state.chat_model} (writing, questions). Click to use the coding model in this chat.`
-    : `Using ${S.state.model} (code). Click to use the chat model in this chat.`;
+  const chatModel = S.state.chat_model || S.state.model || "the AI";
+  b.textContent = r === "chat" ? "💬 Chat" : "🛠 Code";
+  b.title = r === "chat" ? `Chat mode: a helpful assistant for writing and questions (${chatModel}). No project changes. Click for Code mode.`
+    : `Code mode: builds and changes your project (${S.state.model || "coding model"}), with tools and plugins. Click for Chat mode.`;
+  b.classList.toggle("code", r === "code");
 }
 $("#role-btn").onclick = () => { S.roles[S.chat] = chatRole() === "chat" ? "code" : "chat"; renderRole(); };
-setInterval(renderRole, 1500);
+setInterval(renderRole, 1000);

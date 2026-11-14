@@ -170,14 +170,47 @@ class HttpServer:
 
 
 # ------------------------------------------------------------------ manager
+TOOL_CACHE = config.HOME / "plugin-tools.json"
+
+
+def _spec_key(spec):
+    import hashlib
+    return hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def _tool_cache():
+    try:
+        return json.loads(TOOL_CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_tool_cache(c):
+    try:
+        TOOL_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        TOOL_CACHE.write_text(json.dumps(c), encoding="utf-8")
+    except OSError:
+        pass
+
+
 class Plugins:
     """Starts enabled plugins, lists their tools, routes tool calls."""
 
-    def __init__(self, names=None):
+    def __init__(self, names=None, lazy=True):
+        """lazy: don't launch plugins up front - use their remembered tool lists and start a plugin the first time
+        one of its tools is actually called (so e.g. Blender's plugin doesn't start for a chat that never uses it)."""
         self.servers, self.tools, self.errors = {}, {}, {}
+        self.specs_by = {}
         data = load()
+        cache = _tool_cache()
         for name, spec in data["mcpServers"].items():
             if name in data["disabled"] or (names and name not in names):
+                continue
+            key = _spec_key(spec)
+            if lazy and cache.get(name, {}).get("key") == key:
+                self.specs_by[name] = spec
+                for t in cache[name]["tools"]:
+                    self.tools[f"mcp__{safe(name)}__{safe(t['name'])}"[:64]] = (name, t)
                 continue
             try:
                 self._start(name, spec)
@@ -202,6 +235,10 @@ class Plugins:
         for t in tools:
             full = f"mcp__{safe(name)}__{safe(t['name'])}"[:64]
             self.tools[full] = (name, t)
+        c = _tool_cache()
+        c[name] = {"key": _spec_key(spec), "tools": [{k: t.get(k) for k in ("name", "description", "inputSchema")}
+                                                      for t in tools]}
+        _save_tool_cache(c)
 
     def specs(self):
         out = []
@@ -214,6 +251,8 @@ class Plugins:
 
     def call(self, full, args):
         server, t = self.tools[full]
+        if server not in self.servers:  # first use: start it now
+            self._start(server, self.specs_by[server])
         srv = self.servers[server]
         res = srv.request("tools/call", {"name": t["name"], "arguments": args or {}}, timeout=300)
         parts = []
@@ -270,7 +309,7 @@ def _version():
 def test(name):
     """Start one plugin on its own and report its tools (for `windmill plugins test` and the app)."""
     t0 = time.time()
-    p = Plugins(names=[name])
+    p = Plugins(names=[name], lazy=False)
     if name in p.errors:
         return False, p.errors[name]
     tools = [t["name"] for s, t in p.tools.values()]

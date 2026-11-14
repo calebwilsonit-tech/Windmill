@@ -20,6 +20,7 @@ completely and well, and you explain results in plain, friendly language.
 ENVIRONMENT: {os} | shell for the run tool: {shell} | project folder: {root} | today: {date}
 
 HOW YOU WORK
+0. Greetings, small talk and questions that don't need the project: just answer, with no tools.
 1. Orient cheaply: project_map first. Then read only what you need (find_code / read_file with line ranges).
    Never guess what a file contains.
 2. Links in the user's message: open EVERY one with fetch_url first and use what's there (that's why they gave
@@ -47,6 +48,22 @@ NON-NEGOTIABLE
 - Decide technical questions yourself. Use ask_user only for product decisions you can't reasonably infer.
 - Messages starting with {tag} come from Windmill's automatic debugger - treat them as hard requirements.
 {extra}"""
+
+
+CHAT_SYSTEM = """You are Windmill, a warm, sharp and honest assistant running privately on the user's own computer.
+Help with whatever they ask: conversation, questions, explanations, advice, and writing - drafting, rewriting and
+editing essays, emails and messages. Today: {date}.
+
+- Answer directly and naturally. Small talk gets a short friendly reply. Match the length to the question.
+- Editing someone's writing: keep their voice and meaning, improve clarity, flow and grammar, and briefly say what you
+  changed and why when the changes are big. Ask about audience/tone only if it truly matters.
+- Facts: say so when you're not sure. For anything current or that you'd be guessing at, use web_search and
+  fetch_url instead of guessing. Links the user gives you are opened for you.
+- You can't change files or projects in this mode. If the user wants something built, fixed or changed in their
+  project, tell them to switch this chat to "Code" (the switch under the message box), then it can do that.
+- Plain language, no jargon unless they use it. Use short paragraphs or lists when it helps readability."""
+
+CHAT_TOOLS = ("web_search", "fetch_url")
 
 
 class Printer:
@@ -139,7 +156,8 @@ class Printer:
 
 class Agent:
     def __init__(self, root, cfg=None, session=None, interactive=True, printer=None, critic=True, max_steps=None,
-                 llm=None):
+                 llm=None, mode="code"):
+        self.mode = mode  # "code": the builder (tools, plugins, checks) | "chat": a general assistant (web only)
         self.root = Path(root).resolve()
         self.cfg = cfg or config.load()
         self.llm = llm or LLM(self.cfg)
@@ -148,7 +166,7 @@ class Agent:
         self.confirm = ui.confirm      # the app replaces these with its own dialogs
         self.ask_fn = None
         self.plugins = None
-        if interactive:
+        if interactive and mode == "code":
             try:
                 from . import mcp
                 if mcp.load()["mcpServers"]:
@@ -158,16 +176,22 @@ class Agent:
             except Exception as e:  # noqa: BLE001
                 ui.warn(f"(plugins unavailable: {e})")
         self.tools = Tools(self.root, interactive, self.cfg.get("permission", "auto"),
-                           ask=self._ask if interactive else None, plugins=self.plugins)
+                           ask=self._ask if interactive else None, plugins=self.plugins,
+                           only=CHAT_TOOLS if mode == "chat" else None)
         self.session = session or Session.new(self.root)
         self.critic_on = critic
         self.max_steps = max_steps or self.cfg.get("max_steps", 80)
         self.messages = [{"role": "system", "content": self.system_prompt()}]
         self.messages += [m for m in self.session.messages if m.get("role") != "system"]
-        self.ensure_git()
+        if mode == "code":
+            self.ensure_git()
+        else:
+            self.critic_on = False
 
     # ---------------------------------------------------------- setup
     def system_prompt(self):
+        if self.mode == "chat":
+            return CHAT_SYSTEM.format(date=datetime.date.today().isoformat())
         extra = []
         rules = self.root / "AGENTS.md"
         if rules.exists():

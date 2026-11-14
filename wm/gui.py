@@ -104,11 +104,11 @@ class ChatRun:
             self.events.append(ev)
             self.cond.notify_all()
 
-    def ensure_agent(self):
-        if self.agent is None:
+    def ensure_agent(self, mode="code"):
+        if self.agent is None or getattr(self.agent, "mode", "code") != mode:
             from .agent import Agent
             s = sessions.Session.load(self.sid)
-            self.agent = Agent(self.project, config.load(), session=s, interactive=True)
+            self.agent = Agent(self.project, config.load(), session=s, interactive=True, mode=mode)
             self.agent.p = EventPrinter(self)
             self.agent.llm.cancel = self.cancel
             self.agent.ask_fn = self.ask
@@ -124,29 +124,29 @@ class ChatRun:
         return self.answers.pop(qid, [None, ""])[1]
 
     def send(self, text, role=None):
+        """role/mode: "chat" (a general assistant: web only, no project tools or plugins) or "code" (the builder).
+        Chat uses the chat model if one is set, otherwise the one model you have."""
         if self.busy:
             return False
         self.busy = True
         self.cancel.clear()
         cfg = config.load()
-        role = role or ("chat" if cfg.get("chat_model_path") else "code")
+        mode = role if role in ("chat", "code") else "chat"
 
         def work():
             try:
                 from . import server
-                want = server.role_cfg(cfg, role)
+                want = server.role_cfg(cfg, mode)
                 have = server.loaded_path()
-                if not server.health(cfg) or (have and want.get("model_path") and os.path.normcase(have) != os.path.normcase(want["model_path"])):
-                    self.push({"type": "note", "text": f"Loading the {'chat' if role == 'chat' else 'coding'} model (can take a minute)..."})
-                if not server.ensure(cfg, role=role):
+                if not server.health(cfg) or (have and want.get("model_path") and
+                                              os.path.normcase(have) != os.path.normcase(want["model_path"])):
+                    name = want.get("model_name") or Path(want.get("model_path") or "model").stem
+                    self.push({"type": "note", "text": f"Loading the AI model ({name}) - can take a minute..."})
+                if not server.ensure(cfg, role=mode):
                     self.push({"type": "error", "text": "The AI model couldn't start. Open Setup > Fix."})
                     return
-                agent = self.ensure_agent()
-                sysmsg = agent.messages[0] if agent.messages and agent.messages[0].get("role") == "system" else None
-                if sysmsg is not None:
-                    base = sysmsg["content"].split("\n\nTHIS CHAT:")[0]
-                    sysmsg["content"] = base + ("\n\nTHIS CHAT: the user is using you as a general assistant (writing, editing, questions), not necessarily for code. If they want an essay rewritten, a question answered or something explained, just do it well in your reply - no tools or project files needed (use web_search/fetch_url for facts you're not sure of). Keep their voice when editing their writing; explain big changes briefly." if role == "chat" else "")
-                with server.hold(role):
+                agent = self.ensure_agent(mode)
+                with server.hold(mode):
                     final = agent.send(text)
                 self.push({"type": "final", "text": final or ""})
                 note("Windmill replied", (final or "Done.").strip().splitlines()[0][:180] if (final or "").strip() else "Done.")

@@ -200,7 +200,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .folder-chip:hover { border-color: var(--accent); color: var(--text); }
 .folder-chip b { color: var(--text); font-weight: 600; }
 .spacer { flex: 1; }
-#role-btn { margin-right: 6px; }
+#role-btn { margin-right: 6px; color: var(--text); }
+#role-btn.code { border-color: var(--accent); }
 .badge.chat { background: var(--accent-soft); color: var(--accent); }
 #project-card .name { cursor: pointer; }
 /* build chats */

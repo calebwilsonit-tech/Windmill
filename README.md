@@ -454,7 +454,10 @@ You can use a second model for everyday chats (rewriting an essay, asking questi
 - Only one model is loaded at a time. Switching unloads the other first (about a minute), so memory use never doubles.
 - Builds, new projects and fixes always use the coding model. A chat during a build borrows the coding model instead
   of interrupting it; a build that starts mid-answer waits for the chat to finish.
-- Each chat has a small **💬 Chat model / 🛠 Coding model** switch under the message box.
+- Each chat has a **💬 Chat / 🛠 Code** switch under the message box. **Chat** (the default for new chats) is a
+  helpful assistant for questions and writing: no project tools, no plugins, only web search and opening links.
+  **Code** is the builder, with tools, plugins and checks. "Build in this project" on Home opens a Code chat.
+- Plugins (Blender, etc.) only start when the AI actually uses one of their tools.
 - An idle model uses essentially no processor or graphics card; it only holds memory. After
   `unload_after_minutes` unused (default 30, in Settings) Windmill unloads it so the memory is free too.
 
