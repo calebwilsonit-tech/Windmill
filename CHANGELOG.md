@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.2 - 2026-11-14 (fix)
+- fix: website projects search the whole library, the same as Rust projects
+- (released automatically from the commit messages)
+
 ## 1.8.1 - 2026-11-14 (fix)
 - fix: llama.cpp install works again on clean PCs (reads GitHub's release page when the API refuses), picks CUDA 12 vs 13 by NVIDIA driver, re-fetches when the GPU build doesn't load
 - (released automatically from the commit messages)
