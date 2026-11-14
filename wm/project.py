@@ -116,9 +116,9 @@ def show_brief(i, b):
         print(f"     {ui.dim('•')} {m}")
 
 
-def pick_design(name, game=False, root=None):
+def pick_design(name, game=False, root=None, hint=""):
     while True:
-        opts = design.options(name, 3, game=game)
+        opts = design.options(name, 3, game=game, hint=hint)
         if ui.EVENTS:  # the app shows the looks as buttons with their colour swatches
             ui.emit(type="ask", text="Choose a look", options=[
                 [str(i), f"{b['label']} ({b['mode']})",
@@ -156,7 +156,9 @@ def design_menu(root):
         if not ui.confirm("Choose a new look?", False):
             return
     game = any(k in (Path(root) / "BRIEF.md").read_text(encoding="utf-8").lower() for k in ("game",)) if (Path(root) / "BRIEF.md").exists() else False
-    b = pick_design(Path(root).name, game=game, root=root)
+    brief = Path(root) / "BRIEF.md"
+    b = pick_design(Path(root).name, game=game, root=root,
+                    hint=brief.read_text(encoding="utf-8", errors="ignore")[:2000] if brief.exists() else "")
     ui.ok(f"Saved the design brief ({b['label']}). Windmill will follow it for all UI work.")
 
 
@@ -227,7 +229,8 @@ def new_project(idea=None, who=None, extra=None, parent=None):
     if root.exists() and any(root.iterdir()):
         ui.warn(f"{root} isn't empty - I'll add to it.")
     root.mkdir(parents=True, exist_ok=True)
-    pick_design(plan["name"], game=preset["game"], root=root)
+    pick_design(plan["name"], game=preset["game"], root=root,
+                hint=" ".join([idea, who or "", extra or "", plan.get("one_liner", ""), " ".join(plan.get("features", []))]))
     scaffold(root, plan, preset)
     ui.ok(f"Project created at {root}")
     if ui.EVENTS:

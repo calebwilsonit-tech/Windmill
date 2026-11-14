@@ -166,6 +166,49 @@ class _HTMLCheck(HTMLParser):
         self.problems.append((self.getpos()[0], f"</{tag}> closes a tag that was never opened"))
 
 
+def leftovers(root, html_files):
+    """Scratch/test pages and scripts or stylesheets nothing loads - unfinished-looking clutter in a delivered site."""
+    out, refs = [], ""
+    skip = ("node_modules", "dist", "target", ".git", ".windmill", ".ai")
+    web = [p for p in root.rglob("*") if p.suffix.lower() in (".html", ".js", ".mjs", ".css")
+           and not any(x in p.parts for x in skip)]
+    for p in web:
+        try:
+            refs += "\n" + p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    for p in html_files:
+        rel = p.relative_to(root).as_posix()
+        if re.match(r"^(test|tests|demo|example|sample|scratch|tmp|temp|debug|playground)[-_.]?.*\.html$", p.name, re.I) \
+                and p.name not in refs.replace(p.read_text(encoding="utf-8", errors="replace"), ""):
+            out.append(f"{rel}: leftover test/scratch page - delete it (or link it from the site if it's a real page)")
+    for p in web:
+        if p.suffix.lower() == ".html" or any(x in p.parts for x in ("vendor", "lib", "libs")):
+            continue
+        if p.name not in refs.replace(p.read_text(encoding="utf-8", errors="replace"), "") and p.name not in ("sw.js", "service-worker.js"):
+            out.append(f"{p.relative_to(root).as_posix()}: never loaded by any page or script - wire it in or delete it")
+    return out
+
+
+def dead_theme_toggles(root):
+    """A script switches a theme class (dark/light) but no style rule actually restyles the page for it."""
+    skip = ("node_modules", "dist", ".git")
+    js = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in root.rglob("*.js") if not any(x in p.parts for x in skip))
+    css = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in root.rglob("*.css") if not any(x in p.parts for x in skip))
+    css += "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", "\n".join(
+        p.read_text(encoding="utf-8", errors="replace") for p in root.rglob("*.html") if not any(x in p.parts for x in skip)), re.S))
+    out = []
+    for cls in sorted(set(re.findall(r"classList\.(?:toggle|add)\(\s*['\"]([\w-]*(?:dark|light|theme)[\w-]*)['\"]", js))):
+        # restyles the page = the class (on html/body/:root) sets colour variables or page colours
+        blocks = re.findall(rf"([^{{}}]*\.{re.escape(cls)}\b[^{{}}]*)\{{([^}}]*)\}}", css)
+        if not any(re.search(r"--[\w-]+\s*:|(^|;|\s)(background|color)\s*:", body) and
+                   not re.search(r"\.(?!" + re.escape(cls) + r")[\w-]+", sel.split(f".{cls}", 1)[1] or "")
+                   for sel, body in blocks):
+            out.append(f"the script switches the '{cls}' class, but no CSS restyles the page for it - the toggle does "
+                       f"nothing visible. Add e.g. `.{cls} {{ --bg: ...; --text: ...; }}` (or html/body.{cls})")
+    return out
+
+
 def web_check(root):
     out = []
     files = [p for p in root.rglob("*.html") if not any(x in p.parts for x in ("node_modules", "dist", "target", ".git"))]
@@ -189,6 +232,12 @@ def web_check(root):
                 out.append(f"{rel}:{ln}: links to '{ref}' which doesn't exist")
         if "<meta name=\"viewport\"" not in src and "<html" in src:
             out.append(f"{rel}: missing <meta name=\"viewport\"> - page will look broken on phones")
+    out += leftovers(root, files)
+    out += dead_theme_toggles(root)
+    for p in files[:200]:  # stand-in copy and dead links anywhere in the site, not only in newly written code
+        for n, tag, txt, fix in slop_lines(p.name, p.read_text(encoding="utf-8", errors="replace")):
+            if tag in ("TEMPLATE-COPY", "DEAD-LINK"):
+                out.append(f"{p.relative_to(root).as_posix()}:{n}: {tag}: {txt[:90]}\n    -> {fix}")
     for p in [p for p in root.rglob("*.css") if "node_modules" not in p.parts][:200]:
         src = re.sub(r"/\*.*?\*/", "", p.read_text(encoding="utf-8", errors="replace"), flags=re.S)
         if src.count("{") != src.count("}"):
@@ -207,7 +256,8 @@ SLOP = [
     (r"\b(TODO|FIXME|XXX|HACK)\b", "MARKER", "finish it and delete the marker"),
     (r"(//|#|/\*|<!--)\s*(\.\.\.|…)", "PLACEHOLDER", "write the real code instead of '...'"),
     (r"(//|#|/\*|<!--).*\b(placeholder|for now|rest of (the )?(code|logic)|implement (this|later|me)|"
-     r"not (yet )?implemented|simplified (version|implementation)|in a real (app|application|project)|"
+     r"not (yet )?implemented|simplified (version|implementation)|"
+     r"in a (real|production|full) (app|application|project|implementation|world|scenario|system|version)|"
      r"add more .* here|your code here)\b", "PLACEHOLDER", "finish the code this comment describes"),
     (r"raise NotImplementedError|throw new Error\(\s*['\"`]not implemented", "UNFINISHED", "implement it"),
     (r"^\s*pass\s*(#.*)?$", "EMPTY", "an empty body - implement it (or remove the function)"),
@@ -215,6 +265,17 @@ SLOP = [
     (r"(placeholder\.com|placehold\.co|via\.placeholder|dummyimage\.com|picsum\.photos)", "PLACEHOLDER-IMG",
      "use a real asset (or a designed CSS/SVG illustration)"),
     (r"^\s*debugger;?\s*$", "DEBUG", "remove the debugger statement"),
+    # template copy a site generator leaves behind - looks finished in code review, obviously fake on screen
+    (r"\b(Project|Product|Item|Post|Article|Feature|Service|Client|Team Member|Testimonial|Card|Image|Photo|Category)"
+     r" (Title|Name|Heading|Description|Text)?\s*#?\d+\b(?![-:/.]\d)(?!\s+of\b)", "TEMPLATE-COPY",
+     "replace the numbered stand-in with the real thing (ask_user for real project names/details if you don't have them)"),
+    (r"\b(Description|Summary|Details) of (this|the|your|my) (project|product|item|game|service|post|work)\b|"
+     r"\b(Your|Company|Business|Brand) (Name|Logo|Tagline) (Here|Goes Here)\b|\bSample (text|title|description|content)\b|"
+     r"\bText goes here\b|\bAdd (a |your )?description here\b", "TEMPLATE-COPY",
+     "write the real, specific content (ask_user for the facts if you don't have them)"),
+    (r"<a\b[^>]*\bhref=[\"']#[\"']", "DEAD-LINK",
+     "this link goes nowhere: point it at the real page/profile, or use a <button> if it performs an action"),
+    (r"\balert\(\s*['\"`]", "STUB", "show an inline message/toast in the page instead of alert()"),
     (r"@ts-ignore(?!.*because)|eslint-disable(?!.*--)", "SUPPRESS", "fix the error instead of silencing it"),
     (r"\bit\.skip\(|\bdescribe\.skip\(|\btest\.skip\(|@pytest\.mark\.skip|xit\(", "TEST-SKIP", "don't skip tests"),
 ]

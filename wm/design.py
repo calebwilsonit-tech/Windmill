@@ -249,13 +249,62 @@ def make_brief(project, direction=None, seed=None, brand=None):
             "avoid": d["avoid"], "seed": seed}
 
 
-def options(project, n=3, game=None, brand=None):
-    """n briefs in clearly different directions (game projects get a game direction among them)."""
+# words in an idea that suit each direction (the look picker offers the best fits first, plus a wildcard)
+AFFINITY = {
+    "retro-future": "neon synthwave retro 80s 90s cyber cyberpunk arcade racing race car cars drift street tuning jdm "
+                    "garage motorsport night glow vaporwave",
+    "glass-depth": "sleek futuristic modern glass widget dashboard sharp premium tech wow slick",
+    "technical": "developer dev code coding programmer engineer portfolio analytics data stats dashboard terminal "
+                 "open-source opensource github api tool",
+    "luxury": "luxury premium elegant high-end exclusive fashion jewelry watch boutique",
+    "editorial": "blog magazine writing writer news story stories journal articles publication",
+    "swiss": "design studio agency architecture architect typography poster",
+    "brutalist": "bold raw zine indie experimental art artist band music underground",
+    "soft-modern": "app saas startup product platform software subscription",
+    "playful": "kids children fun playful cute family toy party colourful colorful",
+    "organic": "natural organic bakery food cafe coffee garden plant eco wellness yoga farm",
+    "minimal-mono": "minimal minimalist clean simple photography photographer gallery black white",
+    "trustworthy": "business finance bank law lawyer clinic doctor health insurance consulting professional services",
+    "game-scifi": "sci-fi scifi space hud mech cyber futuristic shooter",
+    "game-fantasy": "fantasy rpg medieval dungeon magic quest",
+    "game-pixel": "pixel retro 8-bit 16-bit arcade platformer",
+    "game-cozy": "cozy farming life-sim cute relaxing",
+}
+
+
+def rank_directions(hint, keys):
+    """Directions ordered by how well they fit the idea's words (and dark/light wishes)."""
+    words = set(re.findall(r"[a-z0-9][a-z0-9-]+", (hint or "").lower()))
+    want = "dark" if words & {"dark", "night", "neon", "black"} else "light" if words & {"light", "bright", "white", "airy"} else None
+    def score(k):
+        s = 2 * len(words & set(AFFINITY.get(k, "").split()))
+        if want and DIRECTIONS[k]["mode"] == want:
+            s += 1.5
+        elif want:
+            s -= 1.5
+        return s
+    return sorted(keys, key=score, reverse=True), score
+
+
+def options(project, n=3, game=None, brand=None, hint=""):
+    """n briefs in clearly different directions (game projects get a game direction among them).
+    With a hint (the idea in the user's words), the best-fitting directions come first, plus one wildcard."""
     rng = random.Random()
     keys = list(DIRECTIONS)
     game_keys = [k for k in keys if k.startswith("game-")]
     web_keys = [k for k in keys if not k.startswith("game-")]
-    if game:
+    if hint:
+        rng.shuffle(game_keys)
+        rng.shuffle(web_keys)
+        gk, gscore = rank_directions(hint, game_keys)
+        wk, wscore = rank_directions(hint, web_keys)
+        if game:
+            picks = gk[:min(2, n)] + wk[:max(0, n - 2)]
+        else:
+            fits = [k for k in wk if wscore(k) > 0][:n - 1] or wk[:1]
+            rest = [k for k in web_keys if k not in fits]
+            picks = (fits + rng.sample(rest, n - len(fits)))[:n]
+    elif game:
         picks = rng.sample(game_keys, min(2, n)) + rng.sample(web_keys, max(0, n - 2))
     else:
         picks = rng.sample(web_keys, n)
