@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0 - 2026-11-14 (minor)
+- feat: stricter website quality - catches template copy, dead links, alert() stubs, leftover test pages, unused files and theme toggles that do nothing; look picker fits the idea; chat work ticks roadmap milestones
+- (released automatically from the commit messages)
+
 ## 1.8.2 - 2026-11-14 (fix)
 - fix: website projects search the whole library, the same as Rust projects
 - (released automatically from the commit messages)
