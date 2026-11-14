@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.0 - 2026-11-14 (minor)
+- feat: Windmill on your phone - Android app that pairs with your computer (Wi-Fi discovery + 6-digit code, or Tailscale), phone-sized interface, Phone page with QR install
+- (released automatically from the commit messages)
+
 ## 1.9.0 - 2026-11-14 (minor)
 - feat: stricter website quality - catches template copy, dead links, alert() stubs, leftover test pages, unused files and theme toggles that do nothing; look picker fits the idea; chat work ticks roadmap milestones
 - (released automatically from the commit messages)
