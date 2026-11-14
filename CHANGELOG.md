@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.13.0 - 2026-11-14 (minor)
+- feat: built-in Tailscale setup is automatic - sign-in and Tailscale's one-click approval page open by themselves, and Windmill connects the moment you approve (no restart)
+- (released automatically from the commit messages)
+
 ## 1.12.0 - 2026-11-14 (minor)
 - feat: Tailscale built in - reach Windmill from your phone anywhere with nothing to install (sign in once); pairing stays home-only; fix: runtime files in bin/ never block updates
 - (released automatically from the commit messages)
