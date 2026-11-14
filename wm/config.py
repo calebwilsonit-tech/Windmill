@@ -1,5 +1,7 @@
 """Paths and persistent settings (~/.windmill/config.json)."""
 import json
+import time
+import threading
 import os
 import subprocess
 from pathlib import Path
@@ -42,27 +44,54 @@ DEFAULTS = {
 }
 
 
+_LOCK = threading.RLock()
+
+
+def _read():
+    """The saved settings, or None if the file can't be read right now (never mistake that for 'no settings')."""
+    for attempt in range(20):
+        try:
+            return json.loads(CONFIG.read_text(encoding="utf-8")) if CONFIG.exists() else {}
+        except (ValueError, OSError):
+            time.sleep(0.05)  # another process is replacing it this instant - read again
+    return None
+
+
 def load():
     HOME.mkdir(parents=True, exist_ok=True)
     cfg = dict(DEFAULTS)
-    if CONFIG.exists():
-        try:
-            cfg.update(json.loads(CONFIG.read_text(encoding="utf-8")))
-        except ValueError:
-            pass
+    saved = _read()
+    if saved:
+        cfg.update(saved)
     return cfg
 
 
 def save(cfg):
-    HOME.mkdir(parents=True, exist_ok=True)
-    CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    """Write all-or-nothing: a temporary file that replaces the old one in one step, so nothing ever reads half a file."""
+    with _LOCK:
+        HOME.mkdir(parents=True, exist_ok=True)
+        tmp = CONFIG.with_name(f"{CONFIG.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        for attempt in range(20):
+            try:
+                os.replace(tmp, CONFIG)
+                return
+            except PermissionError:  # Windows: someone has it open this instant
+                time.sleep(0.05)
+        os.replace(tmp, CONFIG)
 
 
 def set_value(key, value):
-    cfg = load()
-    cfg[key] = value
-    save(cfg)
-    return cfg
+    """Change one setting, based on the latest saved settings (others' changes are kept)."""
+    with _LOCK:
+        saved = _read()
+        if saved is None:  # couldn't read the file: don't overwrite good settings with defaults
+            raise OSError("Windmill's settings file is busy - try again")
+        cfg = dict(DEFAULTS)
+        cfg.update(saved)
+        cfg[key] = value
+        save(cfg)
+        return cfg
 
 
 def api_base(cfg=None):

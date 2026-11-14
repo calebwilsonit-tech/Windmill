@@ -90,6 +90,11 @@ async function chatMenu(c) {
 function md(src) {
   const blocks = [];
   let s = esc(src).replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => { blocks.push(`<pre><code>${code.replace(/\n$/, "")}</code></pre>`); return `\u0000${blocks.length - 1}\u0000`; });
+  // math-style symbols some models write ($\rightarrow$ ...) as the real characters
+  const SYM = { rightarrow: "→", to: "→", leftarrow: "←", Rightarrow: "⇒", Leftarrow: "⇐", leftrightarrow: "↔", times: "×",
+    cdot: "·", le: "≤", leq: "≤", ge: "≥", geq: "≥", ne: "≠", neq: "≠", approx: "≈", pm: "±", infty: "∞", checkmark: "✓",
+    uparrow: "↑", downarrow: "↓", deg: "°", degree: "°", ldots: "…", dots: "…", alpha: "α", beta: "β", Delta: "Δ", mu: "μ", pi: "π" };
+  s = s.replace(/\$\s*\\([A-Za-z]+)\s*\$/g, (m, n) => SYM[n] || m).replace(/\\(rightarrow|leftarrow|Rightarrow|times|leq|geq|neq|approx)\b/g, (m, n) => SYM[n] || m);
   s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
        .replace(/^#{1,4} (.*)$/gm, "<b>$1</b>");
   const out = s.split(/\n{2,}/).map(p => {

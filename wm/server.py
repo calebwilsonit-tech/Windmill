@@ -235,11 +235,31 @@ def loaded_path():
     return parts[2] if len(parts) > 2 else None
 
 
+def effective(cfg, role="code", model_path=None):
+    """The model this work will really use. Never 'nothing' while a model is loaded or only one is installed:
+    no choice saved -> the loaded model; nothing loaded -> the only installed model (and remember it)."""
+    want = role_cfg(cfg, role, model_path)
+    if want.get("model_path") and Path(want["model_path"]).exists():
+        return want
+    have = loaded_path()
+    if have and Path(have).exists():
+        return {**want, "model_path": have, "model_name": Path(have).stem}
+    found = models.discover(cfg)
+    if len(found) == 1:  # only one model on this PC: that's the one
+        config.set_value("model_path", found[0]["path"])
+        config.set_value("model_name", found[0]["name"])
+        return {**want, "model_path": found[0]["path"], "model_name": found[0]["name"]}
+    return want
+
+
 def ensure(cfg=None, role="code", model_path=None):
     """Make sure the model for this kind of work is running. Switches models only when nothing is using the other one
     (then this work simply uses the loaded model - e.g. a chat during a build uses the coding model)."""
     cfg = cfg or config.load()
-    want = role_cfg(cfg, role, model_path)
+    want = effective(cfg, role, model_path)
+    if not want.get("model_path"):
+        ui.err("No AI model is chosen. Open AI models and click 'Use for coding' (and 'Use for chat') on one.")
+        return False
     up = health(cfg)
     if up:
         have = loaded_path()

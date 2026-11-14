@@ -138,7 +138,7 @@ class ChatRun:
             try:
                 from . import attachments, models, server
                 full, images, shown = attachments.build(self.sid, files, text) if files else (text, [], [])
-                want = server.role_cfg(cfg, mode, model)
+                want = server.effective(cfg, mode, model)
                 name = want.get("model_name") or Path(want.get("model_path") or "model").stem
                 if images and want.get("model_path") and not models.mmproj_for(want["model_path"]):
                     self.push({"type": "note", "text": f"{name} needs its vision adapter to see pictures - looking for it (one-time download)..."})
@@ -505,7 +505,9 @@ def state():
         rec = recommend.home_line()
     except Exception:  # noqa: BLE001
         pass
-    return {"version": version.current(), "model": cfg.get("model_name"), "chat_model": cfg.get("chat_model_name") if cfg.get("chat_model_path") else None, "server": server.health(cfg, timeout=0.5),
+    loaded = server.loaded_path()
+    shown = cfg.get("model_name") or (Path(loaded).stem if loaded else None)  # the model really in use
+    return {"version": version.current(), "model": shown, "loaded": Path(loaded).stem if loaded else None, "chat_model": cfg.get("chat_model_name") if cfg.get("chat_model_path") else None, "server": server.health(cfg, timeout=0.5),
             "project": str(root), "kinds": checks.kinds(root), "roadmap": (root / "ROADMAP.md").exists(),
             "android": (root / "android" / "app").is_dir(), "tip": rec, "app_installed": app_installed(),
             "library": (config.KIT / "corpus" / "corpus.db").exists(), "os": os.name}
