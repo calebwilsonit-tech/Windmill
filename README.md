@@ -129,7 +129,10 @@ queue messages, much like the Claude phone app.
    allow installing from your browser when Android asks (it's not from the Play Store). It's also attached to every
    release on GitHub.
 3. **Pair:** open Windmill on the phone. It finds the computer on the Wi-Fi by itself; type the 6-digit code shown
-   on the computer's Phone page.
+   on the computer's Phone page. Or tap **Ask the computer**: Windmill on the computer pops up "<your phone> wants to
+   connect" with a 2-digit number your phone shows too - click **Allow** there (a tray notification appears if the
+   window is closed). Either way someone at the computer approves it once; a phone can never let itself in.
+   If a phone's key stops being recognised, the phone goes straight back to this pairing screen.
 
 **Away from home (nothing to install):** on the Phone page, turn on **Use it anywhere**. Tailscale is built into
 Windmill (a small helper downloaded from the release), so you only **sign in once** with a free Tailscale account
@@ -446,6 +449,29 @@ windmill benchmark --api https://api.openai.com/v1 --api-model <model> --api-key
 Other providers' OpenAI-compatible addresses: Gemini `https://generativelanguage.googleapis.com/v1beta/openai`,
 Anthropic `https://api.anthropic.com/v1`, OpenRouter `https://openrouter.ai/api/v1`. That adds
 `api-plain` and `api-windmill` rows, so you see the frontier model both on its own and inside Windmill.
+
+## Claude check (optional)
+
+Your local model does the building. Optionally, Claude (a much stronger model) can **review** its work and say
+what to fix - Settings > **Claude check**:
+
+| Option | When Claude looks |
+|---|---|
+| **Off** (default) | Never - fully local, nothing leaves your PC |
+| **When stuck** | Only after the local AI failed all its tries on a step, or ran out of review rounds |
+| **Each milestone** | Claude does the review of every milestone (phase 3), plus when stuck - recommended |
+| **Each step** | Claude reviews every step as it passes, plus milestones and when stuck (about 5x the calls) |
+
+Connect it either way (or both - "whichever is set up" tries your subscription first):
+- **Claude subscription:** install Claude Code and sign in (`claude`, then `/login`). Windmill runs it in the
+  background with no window, **read-only** (it can read your project, never edit or run anything). No extra cost -
+  it counts toward your plan's usage limits.
+- **API key:** paste an Anthropic API key in Settings. It's checked, then kept in Windows Credential Manager (never in
+  Windmill's files). Pay-per-use - usually a few cents to ~20 cents a check - with a monthly limit you set (default
+  $5); Settings shows the running total.
+
+Claude's reviews appear in the build chat. If Claude can't be reached (offline, limit reached) the build carries on
+with the local reviewer.
 
 ## A chat model and a coding model
 

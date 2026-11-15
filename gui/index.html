@@ -237,6 +237,7 @@
 
     <!-- SETTINGS -->
     <section class="view hidden" id="view-settings">
+      <div id="claude-box" class="card-form settings" style="margin-bottom:18px"></div>
       <form id="settings-form" class="settings"></form>
     </section>
 
@@ -251,6 +252,14 @@
   <div class="modal-card">
     <input id="palette-input" placeholder="Type a command…" autocomplete="off">
     <div id="palette-list"></div>
+  </div>
+</div>
+<div id="pairreq-modal" class="modal hidden" role="dialog" aria-label="Phone wants to connect">
+  <div class="modal-card">
+    <h2>📱 <span id="pr-name">A phone</span> wants to connect</h2>
+    <p>It will be able to chat and build with Windmill on this computer. Only allow it if it's yours and its screen
+    shows the number <b id="pr-check" style="font-size:1.6em"></b>.</p>
+    <div class="row right"><button class="ghost" id="pr-deny">Deny</button><button class="primary" id="pr-allow">Allow</button></div>
   </div>
 </div>
 <div id="update-modal" class="modal hidden" role="dialog" aria-label="Update available">

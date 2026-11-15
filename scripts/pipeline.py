@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import ai_corpus  # noqa: E402
 import ai_index  # noqa: E402
 import ai_query  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from wm import claude  # noqa: E402
 from common import (DIFF_EXCLUDE, check_server, chat, diff_since, die, git, is_dirty,  # noqa: E402
                     journal, load_project_cfg, log, repo_map, repo_root, run_aider, run_dir, run_shell,
                     EVENTS, emit)
@@ -159,6 +161,26 @@ def run_mutants(root, base, out, rnd):
     return [l for l in missed.read_text(encoding="utf-8").splitlines() if l.strip()] if missed.exists() else []
 
 
+def claude_says(kind, title, prompt, root, files=()):
+    """Ask Claude (if connected) and show its answer in the chat. -> text or None."""
+    log(f"Asking Claude ({title})...")
+    r = claude.ask(kind, prompt, root, files)
+    if not r.get("ok"):
+        log(f"Claude check skipped: {r.get('error')}")
+        return None
+    cost = f" (about ${r['usd']:.2f})" if r.get("via") == "api" else ""
+    if EVENTS:
+        emit(type="text", text=f"**Claude - {title}**{cost}\n\n{r['text']}\n")
+    else:
+        print(f"--- Claude - {title}{cost} ---\n{r['text']}\n")
+    return r["text"]
+
+
+def changed_files(base, root):
+    out = git("diff", "--name-only", base, cwd=root)
+    return [l for l in out.splitlines() if l.strip() and not l.startswith(".ai/")][:20]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("task", nargs="?", help="what you want built")
@@ -227,9 +249,16 @@ def main():
 
     # ---------------------------------------------------------------- 2. STEPS
     n = len(steps)
+    cmode = claude.active_mode()
+    if cmode != "off":
+        log(f"Claude check: {cmode} (via your {claude.backend()})")
     for idx, (_, title, text) in enumerate(steps, 1):
         feedback = ""
-        for attempt in range(1, retries + 1):
+        step_base = git("rev-parse", "HEAD", cwd=root)
+        asked_stuck = asked_review = False
+        attempt, max_attempts = 0, retries
+        while attempt < max_attempts:
+            attempt += 1
             log(f"2 STEP {idx}/{n}: {title}  (attempt {attempt}/{retries})")
             msg = STEP_TEMPLATE.format(i=idx, n=n, prev=idx - 1 if idx > 1 else "none",
                                        step=text, extra=feedback)
@@ -240,11 +269,34 @@ def main():
             run_aider(root, f"TASK (overall):\n{task}\n\n{msg}", out, f"step{idx}-try{attempt}",
                       test_cmd, lint_cmd, read=[plan_path, ctx_path], edit=files)
             ok, check_out = run_shell(test_cmd, root)
+            if ok and cmode == "step" and not asked_review:
+                asked_review = True
+                rv = claude_says("review", f"step {idx} review",
+                                 f"TASK (overall):\n{task}\n\nTHIS STEP ({idx} of {n}):\n{text}\n\n"
+                                 f"Review ONLY this step's changes (later steps aren't done yet).\n\n"
+                                 f"CHECK RESULT: PASS\n\nDIFF:\n```diff\n{diff_since(step_base, root)}\n```",
+                                 root, changed_files(step_base, root))
+                if rv and not claude.verdict(rv):
+                    feedback = ("\nA senior reviewer (Claude) checked this step and found problems. Fix every "
+                                f"PARTIAL/MISSING requirement and high/medium issue it lists:\n\n{rv[-6000:]}")
+                    max_attempts = max(max_attempts, attempt + 1)
+                    continue
             if ok:
                 log(f"Step {idx} complete and verified.")
                 break
             feedback = (f"\nA previous attempt at this step left the project failing the check. "
                         f"Fix this first:\n```\n{check_out[-4000:]}\n```")
+            if attempt == max_attempts and cmode != "off" and not asked_stuck:
+                asked_stuck = True  # the local model is stuck: one more try with Claude's diagnosis
+                advice = claude_says("stuck", f"help with step {idx}",
+                                     f"TASK (overall):\n{task}\n\nSTEP {idx} of {n} that keeps failing:\n{text}\n\n"
+                                     f"The local model tried {attempt} times. The check still fails with:\n"
+                                     f"```\n{check_out[-6000:]}\n```\n\nIts current changes for this step:\n"
+                                     f"```diff\n{diff_since(step_base, root)[-20000:]}\n```",
+                                     root, changed_files(step_base, root))
+                if advice:
+                    feedback += f"\n\nA senior engineer (Claude) diagnosed the problem. Follow this exactly:\n\n{advice}"
+                    max_attempts += 1
         else:
             log(f"Step {idx} still failing after {retries} attempts. Stopping here so broken code "
                 f"isn't built on.\nSee {out}. Partial work: git diff {base[:10]}")
@@ -254,14 +306,23 @@ def main():
 
     # ---------------------------------------------------------------- 3-5. REVIEW / FIX / MUTANTS
     mutants_clean = not use_mutants
-    for rnd in range(1, rounds + 1):
+    total_rounds = rounds + (1 if cmode == "stuck" else 0)  # "stuck": one extra round, reviewed by Claude
+    for rnd in range(1, total_rounds + 1):
         tests_ok, test_out = run_shell(test_cmd, root)
         lint_ok, lint_out = run_shell(lint_cmd, root)
         diff = diff_since(base, root)
 
-        log(f"3 REVIEW round {rnd}/{rounds}  (check: {'PASS' if tests_ok else 'FAIL'})")
+        log(f"3 REVIEW round {rnd}/{total_rounds}  (check: {'PASS' if tests_ok else 'FAIL'})")
         system = REVIEW_SYSTEM + (f"\n\nAlso check:\n{cfg['review_extra']}" if cfg.get("review_extra") else "")
-        review = chat([
+        review = None
+        if cmode in ("milestone", "step") or (cmode == "stuck" and rnd > rounds):
+            review = claude_says("review", f"milestone review (round {rnd})",
+                                 f"TASK:\n{task}\n\nPLAN:\n{plan}\n\nPROJECT RULES:\n{rules}\n\n"
+                                 f"CHECK RESULT ({'PASS' if tests_ok else 'FAIL'}):\n{test_out}\n\n"
+                                 f"LINT RESULT ({'PASS' if lint_ok else 'FAIL'}):\n{lint_out}\n\n"
+                                 f"DIFF:\n```diff\n{diff}\n```", root, changed_files(base, root))
+        claude_reviewed = review is not None
+        review = review or chat([
             {"role": "system", "content": system},
             {"role": "user", "content":
                 f"TASK:\n{task}\n\nPLAN:\n{plan}\n\nPROJECT RULES:\n{rules}\n\n"
@@ -271,7 +332,9 @@ def main():
         ], temperature=0.3)
         review_path = out / f"REVIEW-{rnd}.md"
         review_path.write_text(review, encoding="utf-8")
-        if EVENTS:
+        if claude_reviewed:
+            pass  # already shown
+        elif EVENTS:
             emit(type="text", text="**Reviewer**\n\n" + review + "\n")
         else:
             print(review)
@@ -312,8 +375,8 @@ def main():
         run_aider(root, f"TASK:\n{task}\n\n" + "\n\n".join(problems), out, f"fix-{rnd}",
                   test_cmd, lint_cmd, read=read)
 
-    record(root, base, "STOPPED", task, steps, [f"no full approval after {rounds} review rounds - see REVIEW files in {out.name}"])
-    log(f"Stopped after {rounds} rounds without full approval. Latest review in {out}.\n"
+    record(root, base, "STOPPED", task, steps, [f"no full approval after {total_rounds} review rounds - see REVIEW files in {out.name}"])
+    log(f"Stopped after {total_rounds} rounds without full approval. Latest review in {out}.\n"
         f"Changes so far: git diff {base[:10]}")
     sys.exit(2)
 

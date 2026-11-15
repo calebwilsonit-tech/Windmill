@@ -53,6 +53,26 @@ async function refresh() {
   if (st.tip) $("#tip").innerHTML = `💡 ${esc(st.tip.replace(/ - see .*/, ""))} - <a href="#" data-task="get-model">see models</a>`;
 }
 setInterval(refresh, 15000);
+// a phone asked to connect (pairing started on the phone): someone at this computer must allow it
+async function pairRequests() {
+  if (S.remote || document.hidden) return;
+  const list = await api("/api/phone/requests");
+  const r = Array.isArray(list) && list[0];
+  const m = $("#pairreq-modal");
+  if (!r) { m.classList.add("hidden"); return; }
+  if (!m.classList.contains("hidden") && m.dataset.id === r.id) return;
+  m.dataset.id = r.id;
+  $("#pr-name").textContent = r.name; $("#pr-check").textContent = r.check;
+  m.classList.remove("hidden");
+  const answer = async allow => {
+    m.classList.add("hidden");
+    await api("/api/phone", { action: allow ? "allow" : "deny", id: r.id });
+    toast(allow ? `${r.name} is connected` : "Denied");
+    pairRequests();
+  };
+  $("#pr-allow").onclick = () => answer(true); $("#pr-deny").onclick = () => answer(false);
+}
+setInterval(pairRequests, 3000); document.addEventListener("visibilitychange", pairRequests);
 const beat = () => api("/api/beat", { visible: !document.hidden });
 setInterval(beat, 15000); document.addEventListener("visibilitychange", beat); beat();
 
@@ -810,7 +830,54 @@ async function loadSkills() {
 // ---------------------------------------------------------------- settings
 const SETTING_KEYS = ["auto_update", "permission", "web_access", "unload_after_minutes", "show_thinking", "auto_fix", "ctx", "max_steps", "library_refresh_days", "cache_type", "port"];
 const CHOICES = { auto_update: ["auto", "ask", "off"], permission: ["auto", "ask"], cache_type: ["q8_0", "f16", "q4_0"] };
+// Claude check: a stronger model reviews the local AI's work (optional; off by default)
+const CLAUDE_MODES = [
+  ["off", "Off", "Never. Fully local - nothing leaves this PC."],
+  ["stuck", "When stuck", "Only when the local AI has failed all its tries. Fewest Claude calls."],
+  ["milestone", "Each milestone", "Claude does the review when each milestone finishes (plus when stuck). Recommended."],
+  ["step", "Each step", "Claude reviews every step as it passes (plus milestones and when stuck). Catches problems earliest, about 5x the calls."]];
+async function loadClaude(r) {
+  r = r || await api("/api/claude");
+  if (!r || r.error) return;
+  const sub = r.subscription || {};
+  const usage = r.backend === "api"
+    ? `${r.calls_month} check(s) this month - about $${(r.usd_month || 0).toFixed(2)}${Number(r.cap) ? ` of your $${Number(r.cap).toFixed(2)} limit` : ""}`
+    : `${r.calls_week} check(s) this week`;
+  const opt = (v, t) => `<label class="opt"><input type="radio" name="cvia" value="${v}" ${r.via === v ? "checked" : ""}> ${t}</label>`;
+  $("#claude-box").innerHTML = `
+    <h3 style="margin:0">Claude check <span class="badge">optional</span></h3>
+    <p class="muted small" style="margin:0">A stronger model (Claude) looks at the local AI's work and says what to fix - your local
+    model still does the building. Only the code involved is sent, and only at the moments you choose.</p>
+    <div class="claude-modes">${CLAUDE_MODES.map(([k, t, d]) =>
+      `<label><input type="radio" name="cmode" value="${k}" ${r.mode === k ? "checked" : ""}><span><b>${t}</b> - <span class="muted">${d}</span></span></label>`).join("")}</div>
+    <div class="claude-conn">
+      <b>Connect with</b>
+      ${opt("auto", "Whichever is set up (subscription first)")}${opt("subscription", "My Claude subscription only")}${opt("api", "My API key only")}
+      <div>${sub.signed_in ? `<span class="ok-dot">●</span> <b>Claude subscription</b>: signed in through Claude Code. No extra cost - it uses your plan's limits.`
+        : sub.installed ? `<span class="no-dot">○</span> <b>Claude subscription</b>: Claude Code is installed but not signed in - open a terminal, run <code>claude</code> and type <code>/login</code>.`
+        : `<span class="no-dot">○</span> <b>Claude subscription</b>: install Claude Code (claude.com/code) and sign in with your Claude account.`}
+        <button class="ghost small" id="claude-refresh" type="button">Check again</button></div>
+      <div>${r.has_key ? `<span class="ok-dot">●</span> <b>API key</b>: saved in Windows Credential Manager. <button class="ghost small" id="claude-forget" type="button">Remove key</button>`
+        : `<span class="no-dot">○</span> <b>API key</b>: ${r.computer ? `<span style="display:flex;gap:6px;margin-top:4px"><input id="claude-key" type="password" placeholder="sk-ant-..." style="flex:1" autocomplete="off"><button class="ghost" id="claude-save" type="button">Save key</button></span>` : "add it on the computer."}`}</div>
+      <label class="opt" style="align-items:center">Monthly limit for the API key: $<input id="claude-cap" type="number" min="0" step="1" value="${r.cap}" style="width:90px"> <span class="muted small">(0 = no limit)</span></label>
+    </div>
+    <div class="muted small">${r.mode === "off" ? "Off." : r.backend ? `On (${r.mode}) via your ${r.backend === "api" ? "API key" : "Claude subscription"}. ${usage}.` : "⚠ Turned on, but nothing is connected yet - it stays off until you connect one above."}</div>`;
+  const set = async body => loadClaude(await api("/api/claude", { action: "set", ...body }));
+  $$('#claude-box [name="cmode"]').forEach(e => e.onchange = () => set({ mode: e.value }));
+  $$('#claude-box [name="cvia"]').forEach(e => e.onchange = () => set({ via: e.value }));
+  $("#claude-cap").onchange = e => set({ cap: Number(e.target.value) || 0 });
+  $("#claude-refresh").onclick = async () => loadClaude(await api("/api/claude", { action: "refresh" }));
+  const sv = $("#claude-save");
+  if (sv) sv.onclick = async () => {
+    sv.disabled = true; sv.textContent = "Checking…";
+    const res = await api("/api/claude", { action: "save_key", key: $("#claude-key").value });
+    toast(res.message || res.error || "", 6000); loadClaude(res);
+  };
+  const fg = $("#claude-forget");
+  if (fg) fg.onclick = async () => { if (confirm("Remove the saved API key?")) loadClaude(await api("/api/claude", { action: "forget_key" })); };
+}
 async function loadSettings() {
+  loadClaude();
   const { values, help } = await api("/api/settings");
   $("#settings-form").innerHTML = SETTING_KEYS.map(k => {
     const v = values[k], h = `<span class="help">${esc(help[k] || "")}</span>`;

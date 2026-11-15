@@ -140,6 +140,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .card-form label, .settings label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
 .card-form input, .card-form textarea, .settings input, .settings select { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); font-weight: 400; }
 .settings { display: grid; gap: 14px; max-width: 640px; }
+.claude-modes { display: grid; gap: 6px; }
+.claude-modes label, .claude-conn label.opt { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; cursor: pointer; }
+.claude-modes label b { font-weight: 600; }
+.claude-conn { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.ok-dot { color: #2e9d5b; } .no-dot { color: var(--muted); }
 .settings .help { font-weight: 400; color: var(--muted); font-size: 12.5px; }
 .switch { display: flex !important; grid-template-columns: none !important; align-items: center; gap: 10px; }
 .notes { white-space: pre-wrap; background: var(--code); border-radius: 10px; padding: 12px; max-height: 300px; overflow: auto; font-size: 13px; }

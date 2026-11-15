@@ -30,7 +30,19 @@
     <p class="muted small">Type the 6-digit code shown on <b id="pc-name">your computer</b>'s Phone page.</p>
     <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456">
     <button class="primary" id="pair">Pair</button>
+    <p class="muted small">Can't see the computer's screen right now? <b>Ask the computer</b> instead: it shows a
+    question you answer there once, when you're next at it.</p>
+    <button class="ghost" id="ask">Ask the computer</button>
     <button class="ghost" id="back">Back</button>
+  </section>
+
+  <section id="ask-step" class="hidden">
+    <h2>Waiting for your computer</h2>
+    <p>On <b id="ask-pc">your computer</b>, Windmill asks whether this phone may connect.
+    Click <b>Allow</b> there if it shows this number:</p>
+    <p id="ask-check" style="font-size:3em;font-weight:700;margin:12px 0"></p>
+    <p class="muted small">The question waits for 10 minutes. Wake the computer's screen if it's off.</p>
+    <button class="ghost" id="ask-cancel">Cancel</button>
   </section>
   <p id="msg" class="msg"></p>
 </main>
@@ -108,6 +120,42 @@ async function pair() {
   }
 }
 
+let asking = null;
+function finish(token) {
+  WindmillApp.save(chosen.base, token);
+  fetch(chosen.base + "/api/phone/hello", { cache: "no-store" }).then(r => r.json())
+    .then(h => WindmillApp.setRemote(h.remote || "")).catch(() => { })
+    .finally(() => { msg("Paired! Opening Windmill…"); location.href = chosen.base + "/?dev=" + encodeURIComponent(token); });
+}
+async function ask() {
+  msg("Asking…");
+  try {
+    const r = await fetch(chosen.base + "/api/phone/request", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: WindmillApp.deviceName() }) });
+    const j = await r.json();
+    if (!j.id) return msg(j.error || "The computer didn't accept the request.", true);
+    msg("");
+    $("#ask-pc").textContent = chosen.name; $("#ask-check").textContent = j.check;
+    $("#code-step").classList.add("hidden"); $("#ask-step").classList.remove("hidden");
+    asking = j.id;
+    while (asking === j.id) {
+      await new Promise(res => setTimeout(res, 2000));
+      if (asking !== j.id) return;
+      let st = null;
+      try { st = await (await fetch(chosen.base + "/api/phone/request?id=" + encodeURIComponent(j.id), { cache: "no-store" })).json(); } catch (e) { continue; }
+      if (st.status === "allowed" && st.token) { asking = null; return finish(st.token); }
+      if (st.status === "denied" || st.status === "expired") {
+        asking = null;
+        $("#ask-step").classList.add("hidden"); $("#code-step").classList.remove("hidden");
+        return msg(st.status === "denied" ? "The computer said no." : "Nobody answered in time - ask again.", true);
+      }
+    }
+  } catch (e) {
+    msg("Couldn't reach the computer - check it's on the same Wi-Fi.", true);
+  }
+}
+$("#ask").onclick = ask;
+$("#ask-cancel").onclick = () => { asking = null; $("#ask-step").classList.add("hidden"); $("#code-step").classList.remove("hidden"); msg(""); };
 $("#again").onclick = search;
 $("#manual-btn").onclick = () => { $("#manual").classList.toggle("hidden"); $("#addr").focus(); };
 $("#addr-go").onclick = manual;

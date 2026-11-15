@@ -666,6 +666,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _html(self, text, code=200):
+        body = text.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(n) or b"{}") if n else {}
@@ -743,6 +752,18 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/phone/pair" and via_internet:  # never over the internet: guessing codes must stay local
             data = json.dumps({"error": "Pair this phone at home, on the same Wi-Fi as your computer. "
                                         "After that it works from anywhere."}).encode()
+        elif path == "/api/phone/request" and via_internet:
+            data = json.dumps({"error": "Pair this phone at home, on the same Wi-Fi as your computer. "
+                                        "After that it works from anywhere."}).encode()
+        elif path == "/api/phone/request" and body is not None:  # the phone asks; someone at the computer allows it
+            rid, check = phone.request_pair(body.get("name") or "Phone")
+            if rid:
+                name = phone.pending_requests()[-1]["name"] if phone.pending_requests() else "A phone"
+                note("Phone wants to connect", f"{name} wants to use Windmill - click here, then Allow if the "
+                                                f"number on the phone is {check}.")
+            data = json.dumps({"id": rid, "check": check} if rid else {"error": check}).encode()
+        elif path == "/api/phone/request":
+            data = json.dumps(phone.request_status((q.get("id") or [""])[0])).encode()
         elif path == "/api/phone/pair" and body is not None:
             tok = phone.pair(body.get("code"), body.get("name") or "Phone")
             time.sleep(0.4 if tok else 1.2)  # slows down guessing
@@ -786,7 +807,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Location", "/")
                     self.end_headers()
                     return
-                return self._json({"error": "This phone isn't paired (any more). Pair it again in the Windmill app."}, 403)
+                return self._html(UNPAIRED_PAGE, 403)
         if path in ("/", "/index.html"):
             if q.get("token", [""])[0] == self.server.token:  # first load from the launcher: set the cookie
                 self.send_response(302)
@@ -795,6 +816,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             if not self._authed():
+                if self._phone():  # a phone whose key isn't known here (any more): back to its pairing screen
+                    return self._html(UNPAIRED_PAGE, 403)
                 return self._json({"error": "Open Windmill from its app icon or `windmill app`."}, 403)
             return self._static("index.html")
         if path.startswith("/static/"):
@@ -886,6 +909,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"running": running, "waiting": waiting, "window": window,
                                "next": NOTES[-1][0] if NOTES else 0,
                                "notes": [] if window else [f"{n[1]}: {n[2]}" for n in new[-3:]]})
+        if path == "/api/claude":
+            from . import claude
+            return self._json({**claude.status(), "computer": not self._phone()})
+        if path == "/api/phone/requests":  # "<phone> wants to connect" prompts for the computer's window
+            from . import phone
+            return self._json([] if self._phone() else phone.pending_requests())
         if path == "/api/update/status":
             return self._json({**UPDATING, "version": version.current()})
         if path == "/api/models":
@@ -1086,6 +1115,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "started": True})
         if path == "/api/phone" and not self._phone():
             return self._json(phone_action(b))
+        if path == "/api/claude":
+            from . import claude
+            act, res = b.get("action"), {"ok": True}
+            if act == "set":
+                if b.get("mode") in claude.MODES:
+                    config.set_value("claude_check", b["mode"])
+                if b.get("via") in claude.VIAS:
+                    config.set_value("claude_via", b["via"])
+                if b.get("cap") is not None:
+                    config.set_value("claude_cap_usd", max(0.0, float(b["cap"] or 0)))
+            elif act == "save_key" and not self._phone():  # keys are typed on the computer only
+                ok, m = claude.save_key(b.get("key"))
+                res = {"ok": ok, "message": m}
+            elif act == "forget_key" and not self._phone():
+                claude.forget_key()
+            elif act == "refresh":
+                claude.subscription(refresh=True)
+            elif act in ("save_key", "forget_key"):
+                return self._json({"error": "Do that on the computer."}, 403)
+            return self._json({**res, **claude.status(), "computer": not self._phone()})
         if self._phone() and path in ("/api/shutdown", "/api/phone", "/api/pick-folder", "/api/update/apply"):
             return self._json({"error": "Do that on the computer."}, 403)
         if path == "/api/shutdown":
@@ -1182,6 +1231,17 @@ def idle_watch():
             os._exit(0)
 
 
+UNPAIRED_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Pair again</title>
+<style>body{background:#141414;color:#eee;font:16px system-ui,sans-serif;padding:32px 20px;text-align:center}
+button{background:#4f8cff;color:#fff;border:0;border-radius:10px;padding:12px 20px;font-size:16px;margin-top:16px}</style>
+</head><body><h2>This phone needs pairing again</h2>
+<p>Your computer doesn't recognise this phone any more (it was removed, or Windmill's settings were reset).</p>
+<button onclick="go()">Pair again</button>
+<script>function go(){try{WindmillApp.forget()}catch(e){location.href="about:blank"}}
+setTimeout(go,1500)</script></body></html>"""
+
+
 def phone_info():
     from . import phone, tunnel
     c, ttl = phone.code() if phone.running() else (None, 0)
@@ -1189,6 +1249,7 @@ def phone_info():
             "code": c, "ttl": ttl, "addresses": phone.addresses() if phone.running() else [],
             "devices": [{"id": k, "name": v.get("name"), "added": v.get("added"), "seen": v.get("seen")}
                         for k, v in phone.devices().items()],
+            "requests": phone.pending_requests(),
             "apk": phone.APK.exists(), "tunnel": {**tunnel.status(), "enabled": bool(config.load().get("tunnel"))}}
 
 
@@ -1217,6 +1278,8 @@ def phone_action(b):
         tunnel.stop()
     elif act == "new_code":
         phone.code(new=True)
+    elif act in ("allow", "deny"):
+        phone.answer_request(b.get("id"), act == "allow")
     elif act == "remove":
         phone.remove(b.get("id"))
     return phone_info()

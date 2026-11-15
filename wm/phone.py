@@ -79,6 +79,10 @@ def pair(entered, name="Phone"):
         if not secrets.compare_digest(str(entered or "").strip(), cur):
             return None
         _state.update(code=None, tries=0)  # one code pairs one phone
+    return _new_device(name)
+
+
+def _new_device(name):
     token = secrets.token_urlsafe(32)
     devs = devices()
     did = secrets.token_hex(4)
@@ -86,6 +90,64 @@ def pair(entered, name="Phone"):
                  "added": time.time(), "seen": time.time()}
     config.set_value("phone_devices", devs)
     return token
+
+
+# ------------------------------------------------------------------ pairing started on the phone
+# The phone asks; the computer shows "<phone> wants to connect" with a 2-digit check number that the phone shows too,
+# and someone at the computer clicks Allow. Nothing connects without that click.
+_requests = {}  # rid -> {name, check, at, status: pending|allowed|denied, token}
+REQ_TTL = 600
+
+
+def _prune():
+    for rid in [r for r, v in _requests.items() if time.time() - v["at"] > REQ_TTL]:
+        _requests.pop(rid, None)
+
+
+def request_pair(name):
+    """-> (rid, check number) or (None, error)."""
+    with _lock:
+        _prune()
+        if sum(1 for v in _requests.values() if v["status"] == "pending") >= 3:
+            return None, "Too many phones are asking at once - try again in a few minutes."
+        rid = secrets.token_urlsafe(24)
+        check = f"{secrets.randbelow(90) + 10}"
+        _requests[rid] = {"name": re.sub(r"[^\w .'-]", "", str(name))[:40] or "Phone", "check": check,
+                          "at": time.time(), "status": "pending", "token": None}
+        return rid, check
+
+
+def request_status(rid):
+    with _lock:
+        _prune()
+        r = _requests.get(str(rid or ""))
+        if not r:
+            return {"status": "expired"}
+        out = {"status": r["status"]}
+        if r["status"] == "allowed" and r["token"]:
+            out["token"] = r["token"]
+            r["token"] = None  # handed over once
+            _requests.pop(rid, None)
+        return out
+
+
+def pending_requests():
+    with _lock:
+        _prune()
+        return [{"id": rid, "name": v["name"], "check": v["check"], "age": int(time.time() - v["at"])}
+                for rid, v in _requests.items() if v["status"] == "pending"]
+
+
+def answer_request(rid, allow):
+    with _lock:
+        r = _requests.get(str(rid or ""))
+        if not r or r["status"] != "pending":
+            return False
+        if allow:
+            r.update(status="allowed", token=_new_device(r["name"]))
+        else:
+            r["status"] = "denied"
+        return True
 
 
 # ------------------------------------------------------------------ where the phone can reach this computer

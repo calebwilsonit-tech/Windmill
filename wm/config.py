@@ -13,6 +13,9 @@ CONFIG = HOME / "config.json"
 LOGS = HOME / "logs"
 
 DEFAULTS = {
+    "claude_check": "off",       # off | stuck | milestone | step  (Settings -> Claude check)
+    "claude_via": "auto",        # auto | subscription | api
+    "claude_cap_usd": 5,         # monthly limit for the API key (0 = no limit)
     "model_path": None,          # chosen .gguf
     "model_name": None,
     "llama_server": None,        # path to llama-server binary
