@@ -22,7 +22,8 @@ Fill in the bracketed parts once per project. This file is loaded into every ses
 ## Layout
 - [`src/main.rs` - CLI entry; `src/lib.rs` - core logic; `src/<module>/`]
 - Unit tests in `#[cfg(test)] mod tests` at the bottom of each file
-- Integration tests in `tests/`
+- Integration tests in `tests/` (they can only import a library: keep logic in `src/lib.rs`, `main.rs` just calls it)
+- Never put tests in `src/tests/` - cargo never compiles that folder
 
 ## Finishing rules (enforced automatically - the check fails if you break them)
 - Finish everything you start. No `todo!()`, `unimplemented!()`, `TODO`/`FIXME` comments,

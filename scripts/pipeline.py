@@ -67,6 +67,11 @@ Hard rules:
 - Implement this step COMPLETELY. No todo!(), unimplemented!(), TODO comments,
   placeholder comments, stubs, or "simplified" versions. If it's in this step, finish it.
 - Write the tests listed for this step. Tests must assert real behaviour.
+  Rust: unit tests go in `#[cfg(test)] mod tests {{ use super::*; ... }}` at the bottom of
+  the file they test (never a src/tests/ folder - cargo doesn't build it). Never write the
+  same test function twice.
+- Use the API of the crate versions in Cargo.lock, not what you remember: old tutorials
+  (eframe::epi, App::update with Frame::winit_window...) no longer compile. If unsure, look it up.
 - Only edit the files this step needs.
 - You are done only when the test command passes (it also runs clippy and a guard that
   rejects unfinished code).

@@ -534,6 +534,13 @@ def cmd_index(args, quiet=False):
 
 # ------------------------------------------------------------------ deps index (per project)
 FFI_CRATE = re.compile(r"^(windows[-_].*|winapi.*|libc|.*-sys|objc2.*|core-foundation.*|linux-raw-sys|wasm-bindgen.*)$")
+# Raw OS / GPU bindings: hundreds of thousands of items nobody calls by hand. Never indexed
+# (before, they made deps.db over 500 MB and drowned the useful results).
+SKIP_INDEX = re.compile(r"^(windows.*|winapi.*|libc|.*-sys|objc2.*|block2|core-foundation.*|core-graphics.*|"
+                        r"linux-raw-sys|wasm-bindgen.*|js-sys|web-sys|ash|android.*|ndk.*|jni.*|wayland-.*|x11.*|"
+                        r"xkbcommon.*|metal|naga|khronos.*|gpu-.*|glow|glutin.*|libloading|rustix|smithay.*|"
+                        r"cocoa.*|dispatch.*|zbus.*|zvariant.*)$")
+MAX_ITEMS = 8000  # per crate that isn't yours (a huge transitive crate keeps its first 8,000 public items)
 
 
 def cargo_home():
@@ -547,6 +554,41 @@ def lock_packages(root):
     pk = re.findall(r'\[\[package\]\]\s*\nname = "([^"]+)"\s*\nversion = "([^"]+)"(?:\s*\nsource = "([^"]+)")?',
                     lock.read_text(encoding="utf-8"))
     return [(n, v) for n, v, src in pk if src and src.startswith("registry+")]
+
+
+def wanted_packages(root):
+    """The crates worth indexing: the ones in Cargo.toml plus what THOSE pull in directly (eframe -> egui, winit...),
+    without raw OS bindings. Not the whole Cargo.lock: that's ~450 crates for a GUI app."""
+    lock = root / "Cargo.lock"
+    if not lock.exists():
+        return []
+    blocks = re.split(r"\n\[\[package\]\]\s*\n", "\n" + lock.read_text(encoding="utf-8"))
+    info = {}
+    for b in blocks:
+        m = re.match(r'name = "([^"]+)"\s*\nversion = "([^"]+)"', b)
+        if not m:
+            continue
+        deps = re.search(r"dependencies = \[(.*?)\]", b, re.S)
+        names = re.findall(r'"([^" ]+)(?: ([^"]+))?"', deps.group(1)) if deps else []
+        info.setdefault(m.group(1), []).append((m.group(2), "source = \"registry+" in b, names))
+    direct = {d.replace("_", "-") for d in direct_deps(root)} | direct_deps(root)
+    out, seen = [], set()
+
+    def add(name, ver=None, depth=0):
+        for v, reg, deps in info.get(name, []):
+            if ver and v != ver:
+                continue
+            if (name, v) in seen:
+                continue
+            seen.add((name, v))
+            if reg and (depth == 0 or not SKIP_INDEX.match(name)):
+                out.append((name, v, depth == 0))
+            if depth == 0:
+                for dn, dv in deps:
+                    add(dn, dv or None, 1)
+    for d in direct:
+        add(d)
+    return out
 
 
 def direct_deps(root):
@@ -617,24 +659,31 @@ def cmd_deps(root, quiet=False):
 
 
 def _cmd_deps(root, quiet=False):
-    pkgs = lock_packages(root)
+    pkgs = wanted_packages(root)
     if not pkgs:
         log("No Cargo.lock with registry crates (run `cargo build` or `cargo generate-lockfile` first).", quiet)
         return
-    missing = [p for p in pkgs if not find_src(*p)]
+    missing = [p for p in pkgs if not find_src(p[0], p[1])]
     if missing:
         log(f"{len(missing)} crate sources not in cargo cache - running `cargo fetch`...", quiet)
         subprocess.run(["cargo", "fetch", "--quiet"], cwd=root)
     (root / ".ai").mkdir(exist_ok=True)
     db = open_deps(root)
-    want = {f"{n}@{v}" for n, v in pkgs}
+    want = {f"{n}@{v}" for n, v, _ in pkgs}
     have = {r[0] for r in db.execute("SELECT id FROM crates")}
+    removed = 0
     for gone in have - want:
         n, v = gone.split("@")
-        db.execute("DELETE FROM api WHERE crate=? AND version=?", (n, v))
+        removed += db.execute("DELETE FROM api WHERE crate=? AND version=?", (n, v)).rowcount
         db.execute("DELETE FROM crates WHERE id=?", (gone,))
+        db.commit()
+    if removed > 20000:  # give the disk space back (old indexes were huge)
+        log(f"deps index: removed {removed:,} items of crates you don't use directly - shrinking .ai/deps.db...", quiet)
+        db.execute("INSERT INTO api(api) VALUES('optimize')")
+        db.commit()
+        db.execute("VACUUM")
     added = 0
-    for n, v in pkgs:
+    for n, v, mine in pkgs:
         cid = f"{n}@{v}"
         if cid in have:
             continue
@@ -642,7 +691,9 @@ def _cmd_deps(root, quiet=False):
         if not d:
             continue
         rows = []
-        for p in (d / "src").rglob("*.rs") if (d / "src").exists() else []:
+        for p in sorted((d / "src").rglob("*.rs")) if (d / "src").exists() else []:
+            if not mine and len(rows) >= MAX_ITEMS:
+                break
             if p.stat().st_size > MAX_FILE:
                 continue
             src = p.read_text(encoding="utf-8", errors="replace")
@@ -659,6 +710,8 @@ def _cmd_deps(root, quiet=False):
                 body = "\n".join(lines[it["line"] - 1:it["end"]]) if small else ""
                 terms = " ".join(dict.fromkeys(split_ident(f"{n} {name} {it['sig']} {rel}")))
                 rows.append((n, v, rel, name, terms, it["sig"], it["doc"], body, it["line"], it["kind"]))
+            if not mine and len(rows) >= MAX_ITEMS:
+                break
         db.executemany("INSERT INTO api VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
         db.execute("INSERT OR REPLACE INTO crates VALUES (?,?)", (cid, len(rows)))
         db.commit()  # one crate per transaction: never holds the lock for long

@@ -61,6 +61,139 @@ def trim_tests(out):
     return cap(lines[idx[0]:]) if idx else cap(lines[-60:])
 
 
+# ---------------------------------------------------------------- hints for made-up APIs
+def _deps_db():
+    p = Path(".ai") / "deps.db"
+    if not p.exists():
+        return None
+    import sqlite3
+    try:
+        return sqlite3.connect(f"file:{p.resolve().as_posix()}?mode=ro", uri=True, timeout=10)
+    except sqlite3.Error:
+        return None
+
+
+def _cargo_deps():
+    try:
+        toml = Path("Cargo.toml").read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    out = set()
+    for sec in re.findall(r"^\[(?:[\w.-]*\.)?(?:dev-|build-)?dependencies\]\s*\n(.*?)(?=^\[|\Z)", toml, re.M | re.S):
+        out.update(m.replace("-", "_") for m in re.findall(r"^([A-Za-z0-9_-]+)\s*=", sec, re.M))
+    return out
+
+
+def api_hints(out):
+    """Turn 'this API doesn't exist' errors into the REAL API of the exact crate versions in Cargo.lock."""
+    hints, done = [], set()
+    deps = _cargo_deps()
+    db = _deps_db()
+    for m in re.finditer(r"method `(\w+)` is not a member of trait `([\w:]+)`", out):
+        meth, trait = m.group(1), m.group(2).split("::")[-1]
+        if trait in done:
+            continue
+        done.add(trait)
+        sigs = []
+        if db:
+            try:
+                for crate, ver, name, sig in db.execute(
+                        "SELECT crate, version, name, sig FROM api WHERE name LIKE ? AND kind='fn'", (trait + "::%",)):
+                    s = re.sub(r"\s+", " ", sig).strip()
+                    if s not in sigs:
+                        sigs.append(s)
+                    src = f"{crate} {ver}"
+            except Exception:  # noqa: BLE001
+                sigs = []
+        if sigs:
+            hints.append(f"`{meth}` is not part of `{trait}` in {src} (your code uses an API from an older or "
+                         f"different version). The real methods of `{trait}` are:\n" +
+                         "\n".join(f"    {s}" for s in sigs[:14]))
+        else:
+            hints.append(f"`{meth}` is not part of trait `{trait}` in this version - look it up with "
+                         f"references(\"{trait} trait\") instead of guessing.")
+    for m in re.finditer(r"(?:cannot find module or crate|unresolved import|use of unresolved module or unlinked crate|"
+                         r"can't find crate for) `(\w+)`", out):
+        c = m.group(1)
+        if c in done or c in ("crate", "self", "super", "std", "core", "alloc") or c in deps:
+            continue
+        done.add(c)
+        hints.append(f"`{c}` is not in Cargo.toml (your crates: {', '.join(sorted(deps)) or 'none'}). Don't add a crate "
+                     f"just for this: check if one of yours already does it (e.g. eframe::egui, eframe re-exports). "
+                     f"If it's truly needed, run `cargo add {c.replace('_', '-')}` and look up its API with references().")
+    for m in re.finditer(r"module `(\w+)` is private", out):
+        if m.group(1) in done:
+            continue
+        done.add(m.group(1))
+        hints.append(f"`{m.group(1)}` is private inside that crate - you can't use it. Use the public items (look them "
+                     f"up with references()); old tutorials often show paths that no longer exist.")
+    if not hints:
+        return ""
+    return "\n\nHOW TO FIX (from the real source of your dependencies):\n- " + "\n- ".join(hints)
+
+
+# ---------------------------------------------------------------- files cargo never builds
+MOD_DECL = re.compile(r"^\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;", re.M)
+PATH_ATTR = re.compile(r'#\[path\s*=\s*"([^"]+)"\]\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*;')
+
+
+def _strip_comments(src):
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    return re.sub(r"//[^\n]*", "", src)
+
+
+def orphan_files(crate_dir="."):
+    """.rs files under src/ that no `mod x;` reaches: cargo never compiles them, so their tests never run."""
+    root = Path(crate_dir)
+    src = root / "src"
+    if not src.is_dir():
+        return []
+    starts = [p for p in (src / "main.rs", src / "lib.rs") if p.exists()]
+    starts += list((src / "bin").glob("*.rs")) + list((src / "bin").glob("*/main.rs"))
+    seen, todo = set(), list(starts)
+    while todo:
+        f = todo.pop()
+        if f.resolve() in seen or not f.exists():
+            continue
+        seen.add(f.resolve())
+        try:
+            text = _strip_comments(f.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        own = f.parent if f.name in ("main.rs", "lib.rs", "mod.rs") or f.parent.name == "bin" else f.with_suffix("")
+        for pth in PATH_ATTR.findall(text):
+            todo.append(f.parent / pth)
+        for name in MOD_DECL.findall(text):
+            todo += [own / f"{name}.rs", own / name / "mod.rs"]
+    out = []
+    for p in sorted(src.rglob("*.rs")):
+        if p.resolve() not in seen:
+            out.append(p.relative_to(root).as_posix())
+    return out
+
+
+def orphan_problems():
+    probs = []
+    has_lib = Path("src/lib.rs").exists()
+    for rel in orphan_files("."):
+        test_like = "/tests/" in "/" + rel or "test" in Path(rel).stem
+        if test_like:
+            probs.append(f"NOT-COMPILED {rel}: no `mod` line includes this file, so cargo never builds it and its tests "
+                         f"never run (\"all checks pass\" would be a lie).\n    -> unit tests go in a `#[cfg(test)] mod tests` "
+                         f"at the bottom of the file they test; integration tests go in tests/{Path(rel).name}"
+                         + ("" if has_lib else " and need a src/lib.rs (a binary-only crate can't be imported by tests/)"))
+        else:
+            probs.append(f"NOT-COMPILED {rel}: no `mod` line includes this file, so cargo never builds it.\n    -> add "
+                         f"`mod {Path(rel).stem};` where it belongs, or delete the file if it's not needed")
+    if not has_lib:
+        for t in sorted(Path("tests").glob("*.rs")) if Path("tests").is_dir() else []:
+            name = Path.cwd().name.replace("-", "_")
+            if re.search(rf"\buse\s+{re.escape(name)}::", t.read_text(encoding="utf-8", errors="replace")):
+                probs.append(f"NO-LIB      {t.as_posix()} imports `{name}::` but there is no src/lib.rs\n    -> move the "
+                             f"logic into src/lib.rs (main.rs keeps just fn main) so tests can use it")
+    return probs
+
+
 # ---------------------------------------------------------------- slop guard
 def git(*args):
     return run(["git", *args])
@@ -221,15 +354,20 @@ def main():
     code, out = run(clippy)
     if code != 0:
         print("BUILD/CLIPPY FAILED (fix these; clippy warnings count as errors):\n")
-        print(trim_compiler(out))
+        print(trim_compiler(out) + api_hints(out))
         return 1
 
     code, out = run(["cargo", "test", "--all-features", "--quiet"])
     if code != 0:
         print("TESTS FAILED:\n")
-        print(trim_tests(out))
+        print(trim_tests(out) + api_hints(out))
         return 1
     summary = [l for l in out.splitlines() if l.startswith("test result")]
+    orphans = orphan_problems()
+    if orphans:
+        print("FILES CARGO NEVER BUILDS:\n")
+        print(cap("\n".join(orphans).splitlines()))
+        return 1
 
     base = resolve_base()
     if base:
