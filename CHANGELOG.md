@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.0 - 2026-11-15 (minor)
+- feat: optional Claude check - Claude reviews the local AI's work when stuck, at each milestone or each step, through your Claude subscription or an API key (with a monthly limit); phones can ask the computer to pair (click Allow there), and an unrecognised phone goes straight back to pairing instead of an error page
+- (released automatically from the commit messages)
+
 ## 1.15.2 - 2026-11-15 (fix)
 - fix: Rust checks fail when test files are never compiled (src/tests/), errors from made-up APIs show the real API of your crate versions, dependency index shrinks from 500+ MB to a few MB
 - (released automatically from the commit messages)
