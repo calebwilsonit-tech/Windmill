@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.0 - 2026-11-15 (minor)
+- feat: the phone reconnects by itself after the computer restarts - it finds the computer again on the Wi-Fi even at a new address, reconnects when you come back to the app, and keeps trying while the offline screen shows; the computer keeps retrying the phone connection after startup
+- (released automatically from the commit messages)
+
 ## 1.16.0 - 2026-11-15 (minor)
 - feat: optional Claude check - Claude reviews the local AI's work when stuck, at each milestone or each step, through your Claude subscription or an API key (with a monthly limit); phones can ask the computer to pair (click Allow there), and an unrecognised phone goes straight back to pairing instead of an error page
 - (released automatically from the commit messages)
