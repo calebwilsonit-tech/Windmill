@@ -25,11 +25,21 @@ const base = WindmillApp.computer();
 document.querySelector("#where").textContent = base ? "Trying: " + base.replace(/^http:\/\//, "") : "";
 document.querySelector("#retry").onclick = () => WindmillApp.retry();
 document.querySelector("#forget").onclick = () => WindmillApp.forget();
-let n = 0;
-const t = setInterval(() => {  // keeps trying quietly for a minute, so it reconnects by itself when the computer wakes
-  if (++n > 6 || !base) return clearInterval(t);
-  fetch(base + "/api/phone/hello", { cache: "no-store" }).then(r => r.ok && WindmillApp.retry()).catch(() => {});
-}, 10000);
+// Keep looking quietly while this screen is open, so it reconnects by itself as soon as Windmill is running again
+// (it also finds the computer if its Wi-Fi address changed after a restart).
+let busy = false, n = 0;
+function look() {
+  if (busy || document.hidden) return;
+  busy = true;
+  setTimeout(() => {
+    let ok = false;
+    try { ok = WindmillApp.reachable(); } catch (e) { }
+    busy = false;
+    if (ok) WindmillApp.retry();
+  }, 0);
+}
+(function loop() { n++; look(); setTimeout(loop, n < 60 ? 5000 : 20000); })();
+document.addEventListener("visibilitychange", look);
 </script>
 </body>
 </html>

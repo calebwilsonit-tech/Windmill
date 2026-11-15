@@ -131,8 +131,22 @@ public class MainActivity extends Activity {
     private boolean updateChecked = false;
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        pausedAt = System.currentTimeMillis();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        String shown = web == null ? null : web.getUrl();
+        boolean offline = shown != null && shown.startsWith("file:///android_asset/offline");
+        boolean away = System.currentTimeMillis() - pausedAt > 30000;
+        // (pausedAt is 0 on the very first start - open() already runs from onCreate then)
+        if (web != null && pausedAt > 0 && !prefs.getString("token", "").isEmpty() && (offline || away)) {
+            pausedAt = 0;
+            open();  // the computer may have restarted, moved address or gone to sleep meanwhile: connect afresh
+        }
         String base = current.isEmpty() ? prefs.getString("base", "") : current;
         if (updateChecked || base.isEmpty()) return;
         updateChecked = true;
@@ -212,17 +226,7 @@ public class MainActivity extends Activity {
             return;
         }
         new Thread(() -> {
-            String remote = prefs.getString("remote", "");
-            String chosen = null;
-            JSONObject hello = hello(base, 1500);
-            if (hello != null) {
-                chosen = base;
-                String r = hello.optString("remote", "");  // keep the anywhere-address up to date while at home
-                if (!r.isEmpty() && !r.equals(remote)) prefs.edit().putString("remote", r).apply();
-            } else if (!remote.isEmpty() && hello(remote, 8000) != null) {
-                chosen = remote;
-            }
-            final String go = chosen;
+            final String go = findComputer();
             runOnUiThread(() -> {
                 current = go == null ? base : go;
                 if (go == null) web.loadUrl("file:///android_asset/offline.html");
@@ -232,6 +236,50 @@ public class MainActivity extends Activity {
     }
 
     private String current = "";
+    private long pausedAt = 0;
+
+    /** Where the paired computer answers right now, or null. Tries the saved Wi-Fi address, then searches the Wi-Fi
+     *  (after a restart the router may give the computer a new address), then the anywhere-address (Tailscale). */
+    private String findComputer() {
+        String base = prefs.getString("base", "");
+        String remote = prefs.getString("remote", "");
+        JSONObject hello = base.isEmpty() ? null : hello(base, 1500);
+        if (hello == null) {
+            String moved = searchWifi();
+            if (moved != null) {
+                base = moved;
+                prefs.edit().putString("base", moved).apply();
+                hello = hello(moved, 2000);
+            }
+        }
+        if (hello != null) {
+            SharedPreferences.Editor e = prefs.edit();
+            String r = hello.optString("remote", "");  // keep the anywhere-address up to date while at home
+            if (!r.isEmpty() && !r.equals(remote)) e.putString("remote", r);
+            String name = hello.optString("name", "");
+            if (!name.isEmpty()) e.putString("pcname", name);  // to recognise it again if its address changes
+            e.apply();
+            return base;
+        }
+        if (!remote.isEmpty() && hello(remote, 8000) != null) return remote;
+        return null;
+    }
+
+    /** The paired computer on this Wi-Fi under a new address (matched by its name), or null. */
+    private String searchWifi() {
+        String name = prefs.getString("pcname", "");
+        try {
+            JSONArray found = new JSONArray(new Bridge().discover());
+            String only = found.length() == 1 ? found.getJSONObject(0).optString("base", null) : null;
+            for (int i = 0; i < found.length(); i++) {
+                JSONObject c = found.getJSONObject(i);
+                if (!name.isEmpty() && name.equals(c.optString("name"))) return c.optString("base", null);
+            }
+            return name.isEmpty() ? only : null;  // never jump to a different computer
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     private static JSONObject hello(String base, int timeoutMs) {
         try {
@@ -348,6 +396,11 @@ public class MainActivity extends Activity {
             prefs.edit().clear().apply();
             CookieManager.getInstance().removeAllCookies(null);
             runOnUiThread(() -> web.loadUrl("file:///android_asset/pair.html"));
+        }
+
+        @JavascriptInterface
+        public boolean reachable() {  // runs off the main thread (WebView calls this on its own thread)
+            return findComputer() != null;
         }
 
         @JavascriptInterface

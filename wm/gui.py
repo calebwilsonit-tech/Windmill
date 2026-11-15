@@ -1285,6 +1285,28 @@ def phone_action(b):
     return phone_info()
 
 
+def _phone_autostart():
+    """Open the phone entry point when Windmill starts. Right after Windows starts the network may not be up yet
+    (or the old Windmill still holds the port after an update), so keep trying instead of giving up."""
+    from . import phone
+    for attempt in range(120):  # ~10 minutes, then every few minutes for good
+        if not config.load().get("phone_access"):
+            return
+        err = phone.start(Handler) if not phone.running() else None
+        if err is None and phone.running():
+            break
+        if attempt in (0, 5, 30):
+            _log(f"phone entry point not open yet ({err}) - retrying")
+        time.sleep(5)
+    else:
+        while config.load().get("phone_access") and phone.start(Handler) is not None:
+            time.sleep(180)
+    threading.Thread(target=phone.apk_path, daemon=True).start()
+    if config.load().get("tunnel"):
+        from . import tunnel
+        tunnel.start()
+
+
 def serve(port=None, token=None, block=True):
     port, token = port or free_port(), token or secrets.token_urlsafe(24)
     for attempt in range(60):  # after an update restart the old process may still hold the port for a moment
@@ -1303,12 +1325,7 @@ def serve(port=None, token=None, block=True):
     info.write_text(json.dumps({"port": port, "token": token, "pid": os.getpid()}), encoding="utf-8")
     threading.Thread(target=idle_watch, daemon=True).start()
     if config.load().get("phone_access"):
-        from . import phone
-        if phone.start(Handler) is None:
-            threading.Thread(target=phone.apk_path, daemon=True).start()
-            if config.load().get("tunnel"):
-                from . import tunnel
-                threading.Thread(target=tunnel.start, daemon=True).start()
+        threading.Thread(target=_phone_autostart, daemon=True).start()
     if block:
         httpd.serve_forever()
         while STATE.get("restarting"):  # restart() is starting the new engine - don't let Python exit under it

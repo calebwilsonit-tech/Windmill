@@ -134,6 +134,12 @@ queue messages, much like the Claude phone app.
    window is closed). Either way someone at the computer approves it once; a phone can never let itself in.
    If a phone's key stops being recognised, the phone goes straight back to this pairing screen.
 
+**Reconnecting by itself:** after you restart the computer and Windmill starts again, just open the phone app - it
+reconnects on its own. It finds the computer again even if the Wi-Fi gave it a new address (it looks for it by
+name), falls back to the Tailscale address when you're away, and while the "can't reach your computer" screen is
+showing it keeps checking quietly, so it connects the moment Windmill is back. (Tick **Start with Windows** in the
+tray icon's menu so Windmill is already running after a restart.)
+
 **Away from home (nothing to install):** on the Phone page, turn on **Use it anywhere**. Tailscale is built into
 Windmill (a small helper downloaded from the release), so you only **sign in once** with a free Tailscale account
 (Google, Microsoft or GitHub). Tailscale may also ask you to switch on its *Funnel* feature once. Windmill then gets
