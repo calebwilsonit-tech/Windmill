@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.2 - 2026-11-15 (fix)
+- fix: Rust checks fail when test files are never compiled (src/tests/), errors from made-up APIs show the real API of your crate versions, dependency index shrinks from 500+ MB to a few MB
+- (released automatically from the commit messages)
+
 ## 1.15.1 - 2026-11-14 (fix)
 - fix: settings could be wiped when saved at the same moment (lost model choices); the model in use is always known, so photos reach a model that can see; math arrows render as symbols
 - (released automatically from the commit messages)
