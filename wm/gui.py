@@ -1132,6 +1132,17 @@ class Handler(BaseHTTPRequestHandler):
                 claude.forget_key()
             elif act == "refresh":
                 claude.subscription(refresh=True)
+            elif act == "set_path" and not self._phone():
+                p = str(b.get("path") or "").strip().strip('"')
+                if p and not Path(p).is_file():
+                    res = {"ok": False, "message": "There's no file at that location."}
+                else:
+                    config.set_value("claude_path", p)
+                    claude.subscription(refresh=True)
+            elif act == "sign_in" and not self._phone():
+                err = claude.sign_in()
+                res = {"ok": not err, "message": err or "A sign-in window opened - finish in your browser, then click "
+                                                        "Check again."}
             elif act in ("save_key", "forget_key"):
                 return self._json({"error": "Do that on the computer."}, 403)
             return self._json({**res, **claude.status(), "computer": not self._phone()})

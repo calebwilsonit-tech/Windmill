@@ -854,9 +854,12 @@ async function loadClaude(r) {
       <b>Connect with</b>
       ${opt("auto", "Whichever is set up (subscription first)")}${opt("subscription", "My Claude subscription only")}${opt("api", "My API key only")}
       <div>${sub.signed_in ? `<span class="ok-dot">●</span> <b>Claude subscription</b>: signed in through Claude Code. No extra cost - it uses your plan's limits.`
-        : sub.installed ? `<span class="no-dot">○</span> <b>Claude subscription</b>: Claude Code is installed but not signed in - open a terminal, run <code>claude</code> and type <code>/login</code>.`
-        : `<span class="no-dot">○</span> <b>Claude subscription</b>: install Claude Code (claude.com/code) and sign in with your Claude account.`}
-        <button class="ghost small" id="claude-refresh" type="button">Check again</button></div>
+        : sub.installed ? `<span class="no-dot">○</span> <b>Claude subscription</b>: Claude Code was found but isn't signed in${sub.problem ? ` (${esc(sub.problem)})` : ""}. ${r.computer ? `<button class="ghost small" id="claude-signin" type="button">Sign in</button>` : ""}`
+        : `<span class="no-dot">○</span> <b>Claude subscription</b>: Claude Code wasn't found on this PC. If it's installed, paste where <code>claude.exe</code> is below - or install it (claude.com/code).`}
+        <button class="ghost small" id="claude-refresh" type="button">Check again</button>
+        ${r.computer ? `<details style="margin-top:6px" ${sub.installed ? "" : "open"}><summary class="muted small">${sub.path ? `Using: ${esc(sub.path)}` : "Where is Claude Code?"}</summary>
+          <p class="muted small" style="margin:4px 0">To find it: open PowerShell and run <code>(Get-Command claude).Source</code> - or, if you use the Claude desktop app, look in <code>%APPDATA%\Claude\claude-code</code>.</p>
+          <span style="display:flex;gap:6px"><input id="claude-path" placeholder="C:\Users\you\.local\bin\claude.exe" value="${esc(r.claude_path || "")}" style="flex:1"><button class="ghost" id="claude-path-save" type="button">Use this</button></span></details>` : ""}</div>
       <div>${r.has_key ? `<span class="ok-dot">●</span> <b>API key</b>: saved in Windows Credential Manager. <button class="ghost small" id="claude-forget" type="button">Remove key</button>`
         : `<span class="no-dot">○</span> <b>API key</b>: ${r.computer ? `<span style="display:flex;gap:6px;margin-top:4px"><input id="claude-key" type="password" placeholder="sk-ant-..." style="flex:1" autocomplete="off"><button class="ghost" id="claude-save" type="button">Save key</button></span>` : "add it on the computer."}`}</div>
       <label class="opt" style="align-items:center">Monthly limit for the API key: $<input id="claude-cap" type="number" min="0" step="1" value="${r.cap}" style="width:90px"> <span class="muted small">(0 = no limit)</span></label>
@@ -867,6 +870,14 @@ async function loadClaude(r) {
   $$('#claude-box [name="cvia"]').forEach(e => e.onchange = () => set({ via: e.value }));
   $("#claude-cap").onchange = e => set({ cap: Number(e.target.value) || 0 });
   $("#claude-refresh").onclick = async () => loadClaude(await api("/api/claude", { action: "refresh" }));
+  const si = $("#claude-signin");
+  if (si) si.onclick = async () => { const res = await api("/api/claude", { action: "sign_in" }); toast(res.message || "", 9000); };
+  const ps = $("#claude-path-save");
+  if (ps) ps.onclick = async () => {
+    const res = await api("/api/claude", { action: "set_path", path: $("#claude-path").value });
+    if (res.message) toast(res.message, 6000);
+    loadClaude(res);
+  };
   const sv = $("#claude-save");
   if (sv) sv.onclick = async () => {
     sv.disabled = true; sv.textContent = "Checking…";

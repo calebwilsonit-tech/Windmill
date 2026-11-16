@@ -79,8 +79,70 @@ def active_mode():
 
 
 # ------------------------------------------------------------------ connections
+def _candidates():
+    """Where Claude Code usually lives on Windows (and elsewhere), newest first."""
+    home = Path.home()
+    appdata = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+    local = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    fixed = [home / ".local" / "bin" / "claude.exe", home / ".local" / "bin" / "claude",   # Claude Code installer
+             appdata / "npm" / "claude.cmd", home / ".npm-global" / "bin" / "claude",       # npm install -g
+             home / ".claude" / "local" / "claude.exe", home / ".claude" / "local" / "claude",
+             local / "Programs" / "claude" / "claude.exe", local / "Microsoft" / "WinGet" / "Links" / "claude.exe"]
+    found = [p for p in fixed if p.is_file()]
+    # the copy of Claude Code that the Claude desktop app downloads and keeps up to date
+    roots = [appdata / "Claude" / "claude-code", local / "Claude" / "claude-code", local / "AnthropicClaude",
+             local / "Programs" / "Claude", local / "Packages"]
+    extra = []
+    for r in roots:
+        if not r.is_dir():
+            continue
+        try:
+            pattern = "Claude*/**/claude-code*/**/claude.exe" if r.name == "Packages" else "**/claude.exe"
+            for i, p in enumerate(r.glob(pattern)):
+                if i > 50:
+                    break
+                if p.is_file() and p.stat().st_size > 1_000_000:  # the real program, not a small launcher
+                    extra.append(p)
+        except OSError:
+            pass
+    extra.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return found + extra
+
+
 def cli_path():
-    return shutil.which("claude")
+    """The Claude Code program: your saved choice, then PATH (re-read: it may be newer than Windmill), then the
+    usual install folders, including the copy inside the Claude desktop app."""
+    mine = (config.load().get("claude_path") or "").strip().strip('"')
+    if mine and Path(mine).is_file():
+        return mine
+    try:
+        from . import setup
+        setup.refresh_path()
+    except Exception:  # noqa: BLE001
+        pass
+    exe = shutil.which("claude")
+    if exe:
+        return exe
+    c = _candidates()
+    return str(c[0]) if c else None
+
+
+def sign_in():
+    """Open Claude Code's sign-in (a browser page) in a small window the user can see. -> error or None."""
+    exe = cli_path()
+    if not exe:
+        return "Claude Code wasn't found on this PC."
+    try:
+        if os.name == "nt":
+            subprocess.Popen(["cmd", "/c", "title Claude sign-in for Windmill && echo Sign in in the browser page "
+                              "that opens, then close this window. && \"" + exe + "\" auth login & pause"],
+                             creationflags=0x00000010)  # CREATE_NEW_CONSOLE: the one window you're meant to see
+        else:
+            subprocess.Popen([exe, "auth", "login"])
+    except OSError as e:
+        return str(e)
+    _CACHE.pop("sub", None)
+    return None
 
 
 def subscription(refresh=False):
@@ -89,15 +151,15 @@ def subscription(refresh=False):
     if c and not refresh and time.time() - c[0] < 300:
         return c[1]
     exe = cli_path()
-    info = {"installed": bool(exe), "signed_in": False, "method": None}
+    info = {"installed": bool(exe), "signed_in": False, "method": None, "path": exe}
     if exe:
         try:
             r = subprocess.run([exe, "auth", "status", "--json"], capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=30, stdin=subprocess.DEVNULL, **NO_WINDOW)
             st = json.loads(r.stdout or "{}")
             info.update(signed_in=bool(st.get("loggedIn")), method=st.get("authMethod"))
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            pass
+        except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+            info["problem"] = f"couldn't run it: {str(e)[:120]}"
     _CACHE["sub"] = (time.time(), info)
     return info
 
@@ -186,6 +248,7 @@ def status():
     u = usage()
     sub = subscription()
     return {**s, "backend": backend(), "subscription": sub, "has_key": bool(api_key()),
+            "claude_path": config.load().get("claude_path") or "",
             "calls_month": u["calls"], "calls_week": len(u["week"]), "usd_month": round(u["usd"], 2)}
 
 
