@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.1 - 2026-11-16 (fix)
+- fix: Claude check finds Claude Code even when it isn't on PATH (installer folder, npm, the copy inside the Claude desktop app), with a Sign in button and a box to paste its location
+- (released automatically from the commit messages)
+
 ## 1.17.0 - 2026-11-15 (minor)
 - feat: the phone reconnects by itself after the computer restarts - it finds the computer again on the Wi-Fi even at a new address, reconnects when you come back to the app, and keeps trying while the offline screen shows; the computer keeps retrying the phone connection after startup
 - (released automatically from the commit messages)
