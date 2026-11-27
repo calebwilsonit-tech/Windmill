@@ -47,13 +47,44 @@ def mcp_server_spec(project=None):
 
 
 # ------------------------------------------------------------------ discovery & auth status
+def _exec_cmd(exe, args):
+    """Build a subprocess command list; on Windows, unwrap npm .cmd shims to `node <entry.js>` so
+    multi-line prompts and long arguments aren't mangled by cmd.exe."""
+    p = Path(exe)
+    if os.name == "nt" and p.suffix.lower() in (".cmd", ".bat") and p.is_file():
+        try:
+            body = p.read_text(encoding="utf-8", errors="ignore")
+            import re as _re
+            m = _re.search(r'"%dp0%\\([^"]+\.(?:m?js|cjs))"', body, _re.I)
+            if m:
+                entry = (p.parent / m.group(1)).resolve()
+                node = shutil.which("node") or (str(p.parent / "node.exe") if (p.parent / "node.exe").is_file() else None)
+                if entry.is_file() and node:
+                    return [node, str(entry), *args]
+        except OSError:
+            pass
+        return ["cmd", "/c", str(p), *args]
+    return [str(exe), *args]
+
+
 def _gemini_candidates():
     home = Path.home()
     appdata = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
     local = Path(os.environ.get("LOCALAPPDATA") or home / "AppData" / "Local")
+    prog = Path(os.environ.get("ProgramFiles") or r"C:\Program Files")
+    nvm_sym = os.environ.get("NVM_SYMLINK")
     fixed = [
         appdata / "npm" / "gemini.cmd",
         appdata / "npm" / "gemini.exe",
+        prog / "nodejs" / "gemini.cmd",
+        local / "pnpm" / "gemini.cmd",
+        local / "pnpm" / "gemini.exe",
+        local / "Volta" / "bin" / "gemini.cmd",
+        local / "Volta" / "bin" / "gemini.exe",
+        local / "Yarn" / "bin" / "gemini.cmd",
+        home / ".bun" / "bin" / "gemini.exe",
+        home / "scoop" / "shims" / "gemini.cmd",
+        local / "Microsoft" / "WinGet" / "Links" / "gemini.exe",
         home / ".npm-global" / "bin" / "gemini",
         home / ".local" / "bin" / "gemini",
         home / ".local" / "bin" / "gemini.exe",
@@ -61,7 +92,32 @@ def _gemini_candidates():
         Path("/usr/local/bin/gemini"),
         Path("/opt/homebrew/bin/gemini"),
     ]
-    return [p for p in fixed if p.is_file()]
+    if nvm_sym:
+        fixed.insert(0, Path(nvm_sym) / "gemini.cmd")
+    found = [p for p in fixed if p.is_file()]
+    # nvm-windows / fnm versioned folders
+    for root in (appdata / "nvm", local / "nvm", local / "fnm_multishells"):
+        if root.is_dir():
+            try:
+                for p in root.glob("*/gemini.cmd"):
+                    if p.is_file():
+                        found.append(p)
+            except OSError:
+                pass
+    # Ask npm where its global prefix is (covers custom npm prefixes)
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    if npm and not found:
+        try:
+            r = subprocess.run(_exec_cmd(npm, ["prefix", "-g"]), capture_output=True, text=True,
+                               timeout=10, stdin=subprocess.DEVNULL, **NO_WINDOW)
+            pref = Path((r.stdout or "").strip())
+            for rel in ("gemini.cmd", "gemini.exe", "bin/gemini", "gemini"):
+                cand = pref / rel
+                if cand.is_file():
+                    found.append(cand)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return found
 
 
 def cli_path(provider):
@@ -76,9 +132,10 @@ def cli_path(provider):
             setup.refresh_path()
         except Exception:  # noqa: BLE001
             pass
-        exe = shutil.which("gemini")
-        if exe:
-            return exe
+        for name in ("gemini", "gemini.cmd", "gemini.exe"):
+            exe = shutil.which(name)
+            if exe:
+                return exe
         c = _gemini_candidates()
         return str(c[0]) if c else None
     return None
@@ -93,7 +150,7 @@ def _gemini_status(refresh=False, home=None):
     info = {"installed": bool(exe), "signed_in": False, "path": exe, "version": None}
     if exe:
         try:
-            r = subprocess.run([exe, "--version"], capture_output=True, text=True, encoding="utf-8",
+            r = subprocess.run(_exec_cmd(exe, ["--version"]), capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=15, stdin=subprocess.DEVNULL, **NO_WINDOW)
             if r.returncode == 0:
                 info["version"] = (r.stdout or r.stderr).strip().splitlines()[0][:60]
@@ -107,6 +164,27 @@ def _gemini_status(refresh=False, home=None):
     if home is None:
         _CACHE["gemini"] = (time.time(), info)
     return info
+
+
+def install_cli(provider):
+    """Install Claude Code or Gemini CLI globally via npm. Streams output to stdout. -> bool."""
+    pkg = {"gemini": "@google/gemini-cli", "claude": "@anthropic-ai/claude-code"}.get(provider)
+    if not pkg:
+        print(f"Unknown CLI provider: {provider}")
+        return False
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    if not npm:
+        print("Node.js / npm wasn't found on this PC. Install Node.js from https://nodejs.org, then try again.")
+        return False
+    print(f"Installing {label(provider)} ({pkg}) via npm...")
+    r = subprocess.run(_exec_cmd(npm, ["install", "-g", pkg]), stdin=subprocess.DEVNULL)
+    _CACHE.pop(provider, None)
+    if r.returncode == 0:
+        exe = cli_path(provider)
+        print(f"Installed {label(provider)}" + (f" at {exe}" if exe else "") + ".")
+        return True
+    print(f"npm install failed with exit code {r.returncode}.")
+    return False
 
 
 def sign_in(provider):
@@ -349,8 +427,8 @@ def ask_oneshot(provider, prompt, root, timeout=900):
         return {"ok": False, "error": f"{label(provider)} isn't installed or wasn't found on this PC."}
     try:
         if provider == "claude":
-            cmd = [exe, "-p", "--output-format", "json", "--tools", "Read", "Grep", "Glob",
-                   "--permission-mode", "dontAsk", "--no-session-persistence"]
+            cmd = _exec_cmd(exe, ["-p", "--output-format", "json", "--tools", "Read", "Grep", "Glob",
+                                  "--permission-mode", "dontAsk", "--no-session-persistence"])
             r = subprocess.run(cmd, input=prompt, cwd=str(root), capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=timeout, **NO_WINDOW)
             data = {}
@@ -366,7 +444,7 @@ def ask_oneshot(provider, prompt, root, timeout=900):
             return {"ok": True, "text": text}
 
         if provider == "gemini":
-            cmd = [exe, "-p", prompt, "--output-format", "json"]
+            cmd = _exec_cmd(exe, ["-p", prompt, "--output-format", "json"])
             r = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL, **NO_WINDOW)
             raw = (r.stdout or "").strip()
@@ -468,17 +546,17 @@ def run_stream(provider, prompt, root, session_id=None, local_model=None, on_eve
             os.close(fd)
             Path(mcp_tmp).write_text(json.dumps(mcp_cfg), encoding="utf-8")
 
-            cmd = [
-                exe, "-p",
+            args = [
+                "-p",
                 "--output-format", "stream-json",
                 "--verbose",
                 "--mcp-config", mcp_tmp,
                 "--permission-mode", "bypassPermissions",
             ]
             if session_id:
-                cmd += ["--resume", session_id]
+                args += ["--resume", session_id]
             proc = subprocess.Popen(
-                cmd, cwd=str(root), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                _exec_cmd(exe, args), cwd=str(root), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="replace", **NO_WINDOW,
             )
             proc.stdin.write(full_prompt)
@@ -487,7 +565,7 @@ def run_stream(provider, prompt, root, session_id=None, local_model=None, on_eve
             # Ensure Windmill MCP is available to Gemini CLI (user-level settings)
             if not plugin_status("gemini")["mcp_installed"]:
                 install_plugin("gemini")
-            cmd = [exe, "-p", full_prompt, "--output-format", "stream-json", "--yolo"]
+            cmd = _exec_cmd(exe, ["-p", full_prompt, "--output-format", "stream-json", "--yolo"])
             proc = subprocess.Popen(
                 cmd, cwd=str(root), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="replace", **NO_WINDOW,

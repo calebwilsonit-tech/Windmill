@@ -412,6 +412,10 @@ def cli_agents_cmd(args):
         print(ui.dim("  Run supervised local sub-agents:     windmill cli supervise claude \"<what to build>\""))
         print(ui.dim("  Chat via CLI with local sub-agents:  windmill cli chat claude \"/windmill <what to build>\""))
         return
+    if sub == "install-cli":
+        prov = rest[0] if rest and rest[0] in cli_agents.PROVIDERS else "gemini"
+        ok = cli_agents.install_cli(prov)
+        sys.exit(0 if ok else 1)
     if sub in ("install", "uninstall"):
         targets = rest if rest and rest[0] != "all" else list(cli_agents.PROVIDERS)
         fn = cli_agents.install_plugin if sub == "install" else cli_agents.uninstall_plugin

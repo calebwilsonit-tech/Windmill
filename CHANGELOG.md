@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.18.1 - 2026-11-27 (fix)
+- fix: improve Windows Gemini CLI discovery and .cmd execution, and add one-click Install button in CLI agents view
+
 ## 1.18.0 - 2026-11-27 (minor)
 - feat: add Claude Code & Gemini CLI integration with supervised local AI sub-agents, Windmill MCP server + /windmill commands, and per-chat project/GitHub workspaces
 

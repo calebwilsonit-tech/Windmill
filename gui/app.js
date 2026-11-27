@@ -922,7 +922,7 @@ async function loadCliAgents(data) {
       ? `<span class="ok-dot">●</span> <b>Ready</b>${p.version ? ` <span class="muted small">(${esc(p.version)})</span>` : ""}`
       : p.installed
         ? `<span class="no-dot">○</span> <b>Installed, not signed in</b>${p.problem ? ` <span class="muted small">(${esc(p.problem)})</span>` : ""} ${r.computer ? `<button class="ghost small" data-cli-act="sign_in" data-prov="${k}" type="button">Sign in</button>` : ""}`
-        : `<span class="no-dot">○</span> <b>Not found</b> <span class="muted small">${k === "claude" ? "(install Claude Code: claude.com/code)" : "(install Gemini CLI: npm i -g @google/gemini-cli)"}</span>`;
+        : `<span class="no-dot">○</span> <b>Not found</b> ${r.computer ? `<button class="primary small" data-cli-install="${k}" type="button">Install ${esc(p.label)}</button>` : ""}`;
     const plugHtml = p.plugin_installed
       ? `<span class="ok-dot">●</span> <b>/windmill plugin installed</b> <span class="muted small">(MCP + <code>/windmill</code> &amp; <code>/windmill-swarm</code>)</span>`
       : `<span class="no-dot">○</span> <b>Plugin not installed</b> <span class="muted small">Install to use <code>/windmill</code> in your ${esc(p.label)} terminal</span>`;
@@ -937,8 +937,9 @@ async function loadCliAgents(data) {
         <button class="${p.plugin_installed ? "ghost" : "primary"} small" data-cli-act="install" data-prov="${k}" type="button">${p.plugin_installed ? "Reinstall plugin" : "Install /windmill plugin"}</button>
         ${p.plugin_installed ? `<button class="ghost small" data-cli-act="uninstall" data-prov="${k}" type="button">Remove plugin</button>` : ""}
       </div>
-      <details ${p.installed ? "" : "open"}><summary class="muted small">${p.path ? `Using: ${esc(p.path)}` : `Set ${esc(p.label)} path…`}</summary>
-        <div class="row" style="margin-top:6px"><input data-cli-path="${k}" placeholder="${k === "claude" ? "Path to claude.exe" : "Path to gemini"}" value="${esc(p.saved_path || "")}" style="flex:1">
+      <details ${p.installed ? "" : "open"}><summary class="muted small">${p.path ? `Using: ${esc(p.path)}` : `Already installed? Set ${esc(p.label)} path…`}</summary>
+        <p class="muted small" style="margin:4px 0">To find it on Windows: open PowerShell and run <code>(Get-Command ${k}).Source</code></p>
+        <div class="row" style="margin-top:6px"><input data-cli-path="${k}" placeholder="${k === "claude" ? "C:\\Users\\you\\.local\\bin\\claude.exe" : "C:\\Users\\you\\AppData\\Roaming\\npm\\gemini.cmd"}" value="${esc(p.saved_path || "")}" style="flex:1">
         <button class="ghost small" data-cli-act="set_path" data-prov="${k}" type="button">Save path</button></div>
       </details>` : ""}
     </div>`;
@@ -946,6 +947,13 @@ async function loadCliAgents(data) {
   $("#cli-providers").innerHTML = cards;
 
   // Wire card buttons
+  $$("[data-cli-install]", $("#cli-providers")).forEach(b => b.onclick = () => {
+    const prov = b.dataset.cliInstall;
+    runTask(["cli", "install-cli", prov], {
+      title: `Install ${prov === "claude" ? "Claude Code" : "Gemini CLI"}`,
+      onExit: async () => loadCliAgents(await api("/api/cli-agents", { action: "refresh" })),
+    });
+  });
   $$("[data-cli-act]", $("#cli-providers")).forEach(b => b.onclick = async () => {
     const act = b.dataset.cliAct, provider = b.dataset.prov;
     const body = { action: act, provider };
