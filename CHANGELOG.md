@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.19.0 - 2026-11-27 (minor)
+- feat: add Antigravity MCP+Skill support, GUI usage lookup dashboard, and in-chat CLI model selector (Opus 5.5, Neon, custom)
+
 ## 1.18.1 - 2026-11-27 (fix)
 - fix: improve Windows Gemini CLI discovery and .cmd execution, and add one-click Install button in CLI agents view
 

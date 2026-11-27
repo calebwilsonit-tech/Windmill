@@ -270,6 +270,11 @@ class SubAgent:
 
             before_files = set(_git_status_files(self.root))
             try:
+                from . import cli_agents
+                cli_agents.record_usage("subagent", self.model_name or "local")
+            except Exception:  # noqa: BLE001
+                pass
+            try:
                 agent = self._ensure_agent(cfg)
                 if not self._agent_factory:
                     with server.hold("code"):
@@ -509,7 +514,7 @@ def _verdict_pass(text):
 
 
 def supervise_goal(goal, root, provider="claude", model=None, max_rounds=None,
-                   on_event=None, cancel=None, cli_ask_fn=None, agent_factory=None):
+                   on_event=None, cancel=None, cli_ask_fn=None, agent_factory=None, cli_model=None):
     """Continuous supervision loop:
     1. CLI agent (Claude Code or Gemini CLI) plans the chunks.
     2. For each chunk, a local AI sub-agent builds it using Windmill's installed local model.
@@ -520,7 +525,7 @@ def supervise_goal(goal, root, provider="claude", model=None, max_rounds=None,
     cfg = config.load()
     max_rounds = int(max_rounds or cfg.get("subagent_max_rounds") or 3)
     cancel = cancel or threading.Event()
-    ask_cli = cli_ask_fn or (lambda prompt: cli_agents.ask_oneshot(provider, prompt, root))
+    ask_cli = cli_ask_fn or (lambda prompt: cli_agents.ask_oneshot(provider, prompt, root, cli_model=cli_model))
     emit = on_event or (lambda ev: None)
 
     emit({"type": "phase", "text": f"{cli_agents.label(provider)} is planning local sub-agent chunks…"})

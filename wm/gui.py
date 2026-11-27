@@ -147,9 +147,10 @@ class ChatRun:
             return role, t, False
         return None, t, False
 
-    def send(self, text, role=None, model=None, files=()):
+    def send(self, text, role=None, model=None, files=(), cli_model=None):
         """role/mode: "chat" | "code" | "claude" | "gemini".
         model: a local model this chat picked (also passed as preferred local sub-agent model for CLI modes).
+        cli_model: optional specific CLI model name (e.g. 'claude-opus-5-5', 'neon', 'gemini-2.5-pro').
         files: names of attachments uploaded for this message."""
         if self.busy:
             return False
@@ -172,7 +173,7 @@ class ChatRun:
                         s.add({"role": "user", "content": text})
                     if supervised_loop:
                         res = subagents.supervise_goal(
-                            cli_prompt, self.project, provider=cli_prov, model=model,
+                            cli_prompt, self.project, provider=cli_prov, model=model, cli_model=cli_model,
                             on_event=self.push, cancel=self.cancel,
                         )
                         final = res.get("summary") or res.get("error") or "Done."
@@ -180,7 +181,7 @@ class ChatRun:
                         res = cli_agents.run_stream(
                             cli_prov, cli_prompt, self.project,
                             session_id=self.cli_sessions.get(cli_prov),
-                            local_model=model, on_event=self.push, cancel=self.cancel,
+                            local_model=model, cli_model=cli_model, on_event=self.push, cancel=self.cancel,
                         )
                         if res.get("session_id"):
                             self.cli_sessions[cli_prov] = res["session_id"]
@@ -1108,7 +1109,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self._json({"error": "no chat"}, 404)
                     run = CHATS[sid] = ChatRun(sid, s.project if s.project and Path(s.project).is_dir() else "")
             if act == "send":
-                ok = run.send(b.get("text", ""), b.get("role"), b.get("model"), b.get("attachments") or [])
+                ok = run.send(b.get("text", ""), b.get("role"), b.get("model"), b.get("attachments") or [],
+                              cli_model=b.get("cli_model"))
                 return self._json({"ok": ok, "since": len(run.events)} if ok else {"error": "still working"}, 200 if ok else 409)
             if act == "stop":
                 run.cancel.set()
@@ -1251,7 +1253,7 @@ class Handler(BaseHTTPRequestHandler):
             if act == "refresh":
                 cli_agents.status(refresh=True)
             elif act in ("install", "uninstall") and not self._phone():
-                targets = list(cli_agents.PROVIDERS) if prov == "all" else [prov]
+                targets = list(cli_agents.ALL_PLUGINS) if prov == "all" else [prov]
                 fn = cli_agents.install_plugin if act == "install" else cli_agents.uninstall_plugin
                 msgs, ok_all = [], True
                 for t in targets:

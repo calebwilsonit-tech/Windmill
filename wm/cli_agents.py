@@ -20,7 +20,25 @@ from pathlib import Path
 from . import claude, config
 
 PROVIDERS = ("claude", "gemini")
-LABELS = {"claude": "Claude Code", "gemini": "Gemini CLI"}
+ALL_PLUGINS = ("claude", "gemini", "antigravity")
+LABELS = {"claude": "Claude Code", "gemini": "Gemini CLI", "antigravity": "Antigravity"}
+CLI_MODELS = {
+    "claude": [
+        {"id": "", "label": "Default", "note": "Claude Code's configured default"},
+        {"id": "claude-opus-5-5", "label": "Opus 5.5", "note": "Strongest reasoning & supervision"},
+        {"id": "opus", "label": "Opus (latest)", "note": "Latest Opus alias"},
+        {"id": "sonnet", "label": "Sonnet (latest)", "note": "Fast, balanced coding & review"},
+        {"id": "haiku", "label": "Haiku (latest)", "note": "Fastest, lowest quota usage"},
+    ],
+    "gemini": [
+        {"id": "", "label": "Default", "note": "Gemini CLI's configured default"},
+        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "note": "Strongest reasoning & review"},
+        {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "note": "Fast & high quota"},
+        {"id": "gemini-3-pro-preview", "label": "Gemini 3 Pro", "note": "Next-gen preview"},
+        {"id": "neon", "label": "Neon", "note": "Custom / preview model"},
+    ],
+}
+USAGE_FILE = config.HOME / "cli-usage.json"
 NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 _CACHE = {}
 
@@ -264,8 +282,42 @@ def _toml_escape(s):
     return s.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
 
 
+ANTIGRAVITY_SKILL = """---
+name: windmill-local-agents
+description: Delegate coding work to Windmill local AI sub-agents installed on this PC while continuously reviewing and supervising their work.
+---
+
+# Windmill Local AI Sub-Agents
+
+Use the connected `windmill` MCP server to spawn local AI sub-agents running on the user's installed GGUF models instead of doing bulk edits yourself.
+
+## Workflow
+1. Call `list_local_models` if you want to see which local models are installed.
+2. Break the user's task into focused, ordered chunks.
+3. Call `spawn_local_subagent(name, task, model?, files?)` for each chunk.
+4. Immediately review the returned `summary`, `files_changed`, `diff`, and `checks_output` against the user's original instructions.
+5. If anything is missing, buggy, or fails checks, call `send_subagent_feedback(agent_id, feedback)` with exact fix instructions so that same local bot fixes its work and re-checks.
+6. Call `approve_subagent(agent_id)` once the chunk passes review, then proceed to the next chunk.
+"""
+
+
+def _antigravity_status(home=None):
+    h = Path(home) if home else Path.home()
+    local = Path(os.environ.get("LOCALAPPDATA") or h / "AppData" / "Local")
+    ag_dir = h / ".gemini" / "antigravity"
+    cands = [
+        ag_dir,
+        local / "Programs" / "Antigravity",
+        local / "Antigravity",
+        Path("/Applications/Antigravity.app"),
+    ]
+    exe = shutil.which("antigravity")
+    found = exe or next((str(p) for p in cands if p.exists()), None)
+    return {"installed": bool(found), "signed_in": bool(ag_dir.is_dir()), "path": found}
+
+
 def plugin_status(provider, home=None):
-    """Check whether Windmill's MCP server and /windmill slash commands are installed for `provider`."""
+    """Check whether Windmill's MCP server and /windmill slash commands/skills are installed for `provider`."""
     h = Path(home) if home else Path.home()
     if provider == "claude":
         cfg = _read_json(h / ".claude.json")
@@ -279,11 +331,16 @@ def plugin_status(provider, home=None):
         cmds_dir = h / ".gemini" / "commands"
         cmds_ok = (cmds_dir / "windmill.toml").is_file() and (cmds_dir / "windmill-swarm.toml").is_file()
         return {"mcp_installed": mcp_ok, "commands_installed": cmds_ok, "plugin_installed": mcp_ok and cmds_ok}
+    if provider == "antigravity":
+        cfg = _read_json(h / ".gemini" / "antigravity" / "mcp_config.json")
+        mcp_ok = "windmill" in (cfg.get("mcpServers") or {})
+        skill_ok = (h / ".gemini" / "antigravity" / "skills" / "windmill" / "SKILL.md").is_file()
+        return {"mcp_installed": mcp_ok, "commands_installed": skill_ok, "plugin_installed": mcp_ok and skill_ok}
     return {"mcp_installed": False, "commands_installed": False, "plugin_installed": False}
 
 
 def install_plugin(provider, home=None):
-    """Install Windmill's MCP server + `/windmill` and `/windmill-swarm` slash commands into Claude Code or Gemini CLI."""
+    """Install Windmill's MCP server + commands/skills into Claude Code, Gemini CLI, or Antigravity."""
     h = Path(home) if home else Path.home()
     spec = mcp_server_spec()
 
@@ -333,11 +390,25 @@ def install_plugin(provider, home=None):
             "Restart Gemini CLI if it's already open."
         )
 
+    if provider == "antigravity":
+        cfg_path = h / ".gemini" / "antigravity" / "mcp_config.json"
+        cfg = _read_json(cfg_path)
+        cfg.setdefault("mcpServers", {})["windmill"] = spec
+        _write_json(cfg_path, cfg)
+
+        skill_dir = h / ".gemini" / "antigravity" / "skills" / "windmill"
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(ANTIGRAVITY_SKILL, encoding="utf-8")
+        return True, (
+            "Installed Windmill MCP & skill for Antigravity (~/.gemini/antigravity/mcp_config.json + windmill skill). "
+            "Reload MCP servers in Antigravity to use local sub-agents."
+        )
+
     return False, f"Unknown provider: {provider}"
 
 
 def uninstall_plugin(provider, home=None):
-    """Remove Windmill's MCP server entry and slash commands from Claude Code or Gemini CLI."""
+    """Remove Windmill's MCP server entry and commands/skills from Claude Code, Gemini CLI, or Antigravity."""
     h = Path(home) if home else Path.home()
     if provider == "claude":
         cfg_path = h / ".claude.json"
@@ -365,18 +436,108 @@ def uninstall_plugin(provider, home=None):
                 p.unlink()
         return True, "Removed Windmill plugin from Gemini CLI."
 
+    if provider == "antigravity":
+        cfg_path = h / ".gemini" / "antigravity" / "mcp_config.json"
+        if cfg_path.is_file():
+            cfg = _read_json(cfg_path)
+            if isinstance(cfg.get("mcpServers"), dict):
+                cfg["mcpServers"].pop("windmill", None)
+                _write_json(cfg_path, cfg)
+        skill_file = h / ".gemini" / "antigravity" / "skills" / "windmill" / "SKILL.md"
+        if skill_file.is_file():
+            skill_file.unlink()
+        return True, "Removed Windmill plugin from Antigravity."
+
     return False, f"Unknown provider: {provider}"
 
 
+# ------------------------------------------------------------------ usage tracking
+_USAGE_LOCK = threading.Lock()
+
+
+def _month_str():
+    return time.strftime("%Y-%m")
+
+
+def _load_usage():
+    try:
+        data = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if data.get("month") != _month_str():
+        # preserve rolling 7-day timestamps and lifetime subagent count across month boundary
+        prev_week = data.get("events", [])
+        total_bots = int(data.get("total_subagents", 0))
+        data = {"month": _month_str(), "counts": {}, "models": {}, "events": prev_week, "total_subagents": total_bots}
+    week_ago = time.time() - 7 * 86400
+    data["events"] = [e for e in data.get("events", []) if isinstance(e, dict) and e.get("t", 0) > week_ago]
+    data.setdefault("counts", {})
+    data.setdefault("models", {})
+    data.setdefault("total_subagents", 0)
+    return data
+
+
+def record_usage(kind, model=""):
+    """Record a CLI agent turn ('claude' | 'gemini') or a local sub-agent run ('subagent')."""
+    with _USAGE_LOCK:
+        u = _load_usage()
+        u["counts"][kind] = int(u["counts"].get(kind, 0)) + 1
+        if kind == "subagent":
+            u["total_subagents"] = int(u.get("total_subagents", 0)) + 1
+        if model:
+            m = u["models"].setdefault(kind, {})
+            m[model] = int(m.get(model, 0)) + 1
+        u["events"].append({"t": time.time(), "k": kind, "m": model or "default"})
+        try:
+            _write_json(USAGE_FILE, u)
+        except OSError:
+            pass
+
+
+def usage_summary():
+    """Combined GUI-friendly usage stats for Claude Code, Gemini CLI, and local sub-agents."""
+    u = _load_usage()
+    cu = claude.usage()
+    cs = claude.settings()
+    ev = u.get("events", [])
+    week_of = lambda k: sum(1 for e in ev if e.get("k") == k)
+    return {
+        "month": u["month"],
+        "claude": {
+            "cli_week": week_of("claude"),
+            "cli_month": int(u["counts"].get("claude", 0)),
+            "check_week": len(cu.get("week", [])),
+            "check_month": int(cu.get("calls", 0)),
+            "api_usd": round(float(cu.get("usd", 0.0)), 2),
+            "api_cap": float(cs.get("cap", 0.0)),
+            "models": u["models"].get("claude", {}),
+        },
+        "gemini": {
+            "cli_week": week_of("gemini"),
+            "cli_month": int(u["counts"].get("gemini", 0)),
+            "models": u["models"].get("gemini", {}),
+        },
+        "subagents": {
+            "week": week_of("subagent"),
+            "month": int(u["counts"].get("subagent", 0)),
+            "total": int(u.get("total_subagents", 0)),
+            "models": u["models"].get("subagent", {}),
+        },
+    }
+
+
 def status(refresh=False, home=None):
-    """Unified status dict for both Claude Code and Gemini CLI."""
+    """Unified status dict for Claude Code, Gemini CLI, and Antigravity."""
     c_sub = claude.subscription(refresh=refresh)
     g_sub = _gemini_status(refresh=refresh, home=home)
+    a_sub = _antigravity_status(home=home)
     cfg = config.load()
     return {
         "default_provider": cfg.get("cli_provider") or "claude",
         "subagent_max_rounds": int(cfg.get("subagent_max_rounds") or 3),
         "subagent_max_steps": int(cfg.get("subagent_max_steps") or 35),
+        "cli_models": CLI_MODELS,
+        "usage": usage_summary(),
         "providers": {
             "claude": {
                 "provider": "claude",
@@ -399,6 +560,15 @@ def status(refresh=False, home=None):
                 "problem": g_sub.get("problem"),
                 **plugin_status("gemini", home=home),
             },
+            "antigravity": {
+                "provider": "antigravity",
+                "label": LABELS["antigravity"],
+                "installed": bool(a_sub.get("installed")),
+                "signed_in": bool(a_sub.get("signed_in")),
+                "path": a_sub.get("path"),
+                "saved_path": "",
+                **plugin_status("antigravity", home=home),
+            },
         },
     }
 
@@ -419,7 +589,7 @@ def expand_slash_command(prompt, local_model=None):
     return text, False
 
 
-def ask_oneshot(provider, prompt, root, timeout=900):
+def ask_oneshot(provider, prompt, root, timeout=900, cli_model=None):
     """Run one non-interactive prompt through Claude Code or Gemini CLI (used for planning/reviewing).
     Returns {'ok': bool, 'text': str, 'error': str}."""
     exe = cli_path(provider)
@@ -427,8 +597,11 @@ def ask_oneshot(provider, prompt, root, timeout=900):
         return {"ok": False, "error": f"{label(provider)} isn't installed or wasn't found on this PC."}
     try:
         if provider == "claude":
-            cmd = _exec_cmd(exe, ["-p", "--output-format", "json", "--tools", "Read", "Grep", "Glob",
-                                  "--permission-mode", "dontAsk", "--no-session-persistence"])
+            args = ["-p", "--output-format", "json", "--tools", "Read", "Grep", "Glob",
+                    "--permission-mode", "dontAsk", "--no-session-persistence"]
+            if cli_model:
+                args += ["--model", str(cli_model)]
+            cmd = _exec_cmd(exe, args)
             r = subprocess.run(cmd, input=prompt, cwd=str(root), capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=timeout, **NO_WINDOW)
             data = {}
@@ -441,10 +614,14 @@ def ask_oneshot(provider, prompt, root, timeout=900):
             if r.returncode != 0 or data.get("is_error") or not text:
                 err = text or (r.stderr or r.stdout).strip()[-300:] or f"exit code {r.returncode}"
                 return {"ok": False, "error": err}
+            record_usage("claude", cli_model or "default")
             return {"ok": True, "text": text}
 
         if provider == "gemini":
-            cmd = _exec_cmd(exe, ["-p", prompt, "--output-format", "json"])
+            args = ["-p", prompt, "--output-format", "json"]
+            if cli_model:
+                args += ["-m", str(cli_model)]
+            cmd = _exec_cmd(exe, args)
             r = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL, **NO_WINDOW)
             raw = (r.stdout or "").strip()
@@ -458,6 +635,7 @@ def ask_oneshot(provider, prompt, root, timeout=900):
             if r.returncode != 0 or not text:
                 err = (r.stderr or raw).strip()[-300:] or f"exit code {r.returncode}"
                 return {"ok": False, "error": err}
+            record_usage("gemini", cli_model or "default")
             return {"ok": True, "text": text}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"{label(provider)} timed out."}
@@ -520,7 +698,7 @@ def _emit_mcp_result_event(tool_name, content_text, on_event):
         })
 
 
-def run_stream(provider, prompt, root, session_id=None, local_model=None, on_event=None, cancel=None):
+def run_stream(provider, prompt, root, session_id=None, local_model=None, cli_model=None, on_event=None, cancel=None):
     """Run Claude Code or Gemini CLI live in `root` with Windmill's local sub-agent MCP tools wired in.
     Streams structured events (`text`, `tool`, `result`, `subagent_start`, `subagent_review`, `subagent_done`,
     `note`, `error`) to `on_event`. Returns {'ok', 'text', 'session_id', 'error'}."""
@@ -533,10 +711,11 @@ def run_stream(provider, prompt, root, session_id=None, local_model=None, on_eve
         return {"ok": False, "text": "", "session_id": session_id, "error": msg}
 
     full_prompt, expanded = expand_slash_command(prompt, local_model=local_model)
+    model_tag = f" ({cli_model})" if cli_model else ""
     if expanded:
-        emit({"type": "phase", "text": f"{label(provider)} supervising Windmill local AI sub-agents…"})
+        emit({"type": "phase", "text": f"{label(provider)}{model_tag} supervising Windmill local AI sub-agents…"})
     else:
-        emit({"type": "activity", "text": f"Running {label(provider)}"})
+        emit({"type": "activity", "text": f"Running {label(provider)}{model_tag}"})
 
     mcp_tmp = None
     try:
@@ -553,6 +732,8 @@ def run_stream(provider, prompt, root, session_id=None, local_model=None, on_eve
                 "--mcp-config", mcp_tmp,
                 "--permission-mode", "bypassPermissions",
             ]
+            if cli_model:
+                args += ["--model", str(cli_model)]
             if session_id:
                 args += ["--resume", session_id]
             proc = subprocess.Popen(
@@ -565,13 +746,17 @@ def run_stream(provider, prompt, root, session_id=None, local_model=None, on_eve
             # Ensure Windmill MCP is available to Gemini CLI (user-level settings)
             if not plugin_status("gemini")["mcp_installed"]:
                 install_plugin("gemini")
-            cmd = _exec_cmd(exe, ["-p", full_prompt, "--output-format", "stream-json", "--yolo"])
+            args = ["-p", full_prompt, "--output-format", "stream-json", "--yolo"]
+            if cli_model:
+                args += ["-m", str(cli_model)]
+            cmd = _exec_cmd(exe, args)
             proc = subprocess.Popen(
                 cmd, cwd=str(root), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", errors="replace", **NO_WINDOW,
             )
         else:
             return {"ok": False, "text": "", "session_id": session_id, "error": f"Unknown provider: {provider}"}
+        record_usage(provider, cli_model or "default")
 
         # Watch cancel event in a background helper so Stop kills the CLI cleanly
         def _watch_cancel():

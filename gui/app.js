@@ -424,7 +424,7 @@ async function sendText(text, files = []) {
   if (!S.chat) { const r = await api("/api/chats", {}); S.chat = r.id; show("chat"); $("#transcript").innerHTML = ""; }
   addMsg("user", userHtml(text, files));
   const r = await api(`/api/chats/${S.chat}/send`, { text, role: chatRole(), model: S.chatModel[S.chat] || null,
-    attachments: files.map(f => f.name) });
+    cli_model: S.chatCliModel[S.chat] || null, attachments: files.map(f => f.name) });
   if (r.error) { toast(r.error); return; }
   setBusy(true);
   listen(r.since);
@@ -911,37 +911,63 @@ $("#plugin-form").onsubmit = async e => {
 };
 $("#plugin-import").onclick = async () => { const r = await api("/api/plugins", { action: "import" }); toast(`Imported ${r.added} plugin(s)`); loadPlugins(); };
 
-// ---------------------------------------------------------------- CLI agents (Claude Code & Gemini CLI + local sub-agents)
+// ---------------------------------------------------------------- CLI agents (Claude Code, Gemini CLI & Antigravity + local sub-agents)
 async function loadCliAgents(data) {
   const r = data || await api("/api/cli-agents");
   if (!r || r.error) return;
+  if (r.cli_models) S.cliModels = r.cli_models;
+  const u = r.usage || {};
+  const cu = u.claude || {}, gu = u.gemini || {}, su = u.subagents || {};
+  const topModels = m => Object.entries(m || {}).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} (${v})`).join(", ");
+  $("#cli-usage").innerHTML = `
+    <div class="usage-card">
+      <div class="label">⚡ Claude Code usage</div>
+      <div class="usage-num">${(cu.cli_week || 0) + (cu.check_week || 0)} <span class="muted small">this week</span> · ${(cu.cli_month || 0) + (cu.check_month || 0)} <span class="muted small">this month</span></div>
+      <div class="muted small">${cu.api_usd ? `API spend: $${Number(cu.api_usd).toFixed(2)}${cu.api_cap ? ` / $${Number(cu.api_cap).toFixed(2)}` : ""}` : "Subscription plan ($0 API)"}${topModels(cu.models) ? ` · ${esc(topModels(cu.models))}` : ""}</div>
+    </div>
+    <div class="usage-card">
+      <div class="label">✦ Gemini CLI usage</div>
+      <div class="usage-num">${gu.cli_week || 0} <span class="muted small">this week</span> · ${gu.cli_month || 0} <span class="muted small">this month</span></div>
+      <div class="muted small">${topModels(gu.models) ? esc(topModels(gu.models)) : "Google account / Gemini CLI quota"}</div>
+    </div>
+    <div class="usage-card">
+      <div class="label">🤖 Local AI sub-agents</div>
+      <div class="usage-num">${su.week || 0} <span class="muted small">this week</span> · ${su.total || 0} <span class="muted small">total</span></div>
+      <div class="muted small">100% local on your GPU · $0 cloud cost${topModels(su.models) ? ` · ${esc(topModels(su.models))}` : ""}</div>
+    </div>`;
+
   const provs = r.providers || {};
-  const cards = ["claude", "gemini"].map(k => {
+  const icons = { claude: "⚡", gemini: "✦", antigravity: "🚀" };
+  const cards = ["claude", "gemini", "antigravity"].map(k => {
     const p = provs[k] || {};
-    const statusHtml = p.signed_in
-      ? `<span class="ok-dot">●</span> <b>Ready</b>${p.version ? ` <span class="muted small">(${esc(p.version)})</span>` : ""}`
-      : p.installed
-        ? `<span class="no-dot">○</span> <b>Installed, not signed in</b>${p.problem ? ` <span class="muted small">(${esc(p.problem)})</span>` : ""} ${r.computer ? `<button class="ghost small" data-cli-act="sign_in" data-prov="${k}" type="button">Sign in</button>` : ""}`
-        : `<span class="no-dot">○</span> <b>Not found</b> ${r.computer ? `<button class="primary small" data-cli-install="${k}" type="button">Install ${esc(p.label)}</button>` : ""}`;
+    const isAg = k === "antigravity";
+    const statusHtml = isAg
+      ? (p.installed ? `<span class="ok-dot">●</span> <b>Detected</b>` : `<span class="no-dot">○</span> <b>Config ready</b> <span class="muted small">(install MCP below for Antigravity)</span>`)
+      : p.signed_in
+        ? `<span class="ok-dot">●</span> <b>Ready</b>${p.version ? ` <span class="muted small">(${esc(p.version)})</span>` : ""}`
+        : p.installed
+          ? `<span class="no-dot">○</span> <b>Installed, not signed in</b>${p.problem ? ` <span class="muted small">(${esc(p.problem)})</span>` : ""} ${r.computer ? `<button class="ghost small" data-cli-act="sign_in" data-prov="${k}" type="button">Sign in</button>` : ""}`
+          : `<span class="no-dot">○</span> <b>Not found</b> ${r.computer ? `<button class="primary small" data-cli-install="${k}" type="button">Install ${esc(p.label)}</button>` : ""}`;
     const plugHtml = p.plugin_installed
-      ? `<span class="ok-dot">●</span> <b>/windmill plugin installed</b> <span class="muted small">(MCP + <code>/windmill</code> &amp; <code>/windmill-swarm</code>)</span>`
-      : `<span class="no-dot">○</span> <b>Plugin not installed</b> <span class="muted small">Install to use <code>/windmill</code> in your ${esc(p.label)} terminal</span>`;
+      ? `<span class="ok-dot">●</span> <b>Windmill plugin installed</b> <span class="muted small">${isAg ? "(MCP + windmill-local-agents skill)" : "(MCP + <code>/windmill</code> &amp; <code>/windmill-swarm</code>)"}</span>`
+      : `<span class="no-dot">○</span> <b>Plugin not installed</b> <span class="muted small">${isAg ? "Adds Windmill local sub-agents to Antigravity" : `Install to use <code>/windmill</code> in your ${esc(p.label)} terminal`}</span>`;
     return `<div class="cli-card card-form">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <h3 style="margin:0">${k === "claude" ? "⚡" : "✦"} ${esc(p.label || k)}</h3>
-        <button class="ghost small" data-cli-chat="${k}" type="button">Open chat →</button>
+        <h3 style="margin:0">${icons[k] || "⌨"} ${esc(p.label || k)}</h3>
+        ${isAg ? `<span class="badge">MCP + Skill</span>` : `<button class="ghost small" data-cli-chat="${k}" type="button">Open chat →</button>`}
       </div>
       <div>${statusHtml}</div>
       <div>${plugHtml}</div>
       ${r.computer ? `<div class="row" style="flex-wrap:wrap;gap:6px">
-        <button class="${p.plugin_installed ? "ghost" : "primary"} small" data-cli-act="install" data-prov="${k}" type="button">${p.plugin_installed ? "Reinstall plugin" : "Install /windmill plugin"}</button>
+        <button class="${p.plugin_installed ? "ghost" : "primary"} small" data-cli-act="install" data-prov="${k}" type="button">${p.plugin_installed ? "Reinstall plugin" : (isAg ? "Install Antigravity MCP & Skill" : "Install /windmill plugin")}</button>
         ${p.plugin_installed ? `<button class="ghost small" data-cli-act="uninstall" data-prov="${k}" type="button">Remove plugin</button>` : ""}
       </div>
-      <details ${p.installed ? "" : "open"}><summary class="muted small">${p.path ? `Using: ${esc(p.path)}` : `Already installed? Set ${esc(p.label)} path…`}</summary>
+      ${isAg ? `<div class="muted small">Writes to <code>~/.gemini/antigravity/mcp_config.json</code> &amp; <code>skills/windmill/SKILL.md</code></div>`
+        : `<details ${p.installed ? "" : "open"}><summary class="muted small">${p.path ? `Using: ${esc(p.path)}` : `Already installed? Set ${esc(p.label)} path…`}</summary>
         <p class="muted small" style="margin:4px 0">To find it on Windows: open PowerShell and run <code>(Get-Command ${k}).Source</code></p>
         <div class="row" style="margin-top:6px"><input data-cli-path="${k}" placeholder="${k === "claude" ? "C:\\Users\\you\\.local\\bin\\claude.exe" : "C:\\Users\\you\\AppData\\Roaming\\npm\\gemini.cmd"}" value="${esc(p.saved_path || "")}" style="flex:1">
         <button class="ghost small" data-cli-act="set_path" data-prov="${k}" type="button">Save path</button></div>
-      </details>` : ""}
+      </details>`}` : ""}
     </div>`;
   }).join("");
   $("#cli-providers").innerHTML = cards;
@@ -1430,30 +1456,90 @@ $("#composer").addEventListener("drop", e => { e.preventDefault(); $("#composer"
 
 // ---------------------------------------------------------------- the model picker in the message box (per chat)
 S.chatModel = {};
+S.chatCliModel = {};
+const DEFAULT_CLI_MODELS = {
+  claude: [
+    { id: "", label: "Default", note: "Claude Code's configured default" },
+    { id: "claude-opus-5-5", label: "Opus 5.5", note: "Strongest reasoning & supervision" },
+    { id: "opus", label: "Opus (latest)", note: "Latest Opus alias" },
+    { id: "sonnet", label: "Sonnet (latest)", note: "Fast, balanced coding & review" },
+    { id: "haiku", label: "Haiku (latest)", note: "Fastest, lowest quota usage" },
+  ],
+  gemini: [
+    { id: "", label: "Default", note: "Gemini CLI's configured default" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", note: "Strongest reasoning & review" },
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", note: "Fast & high quota" },
+    { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", note: "Next-gen preview" },
+    { id: "neon", label: "Neon", note: "Custom / preview model" },
+  ],
+};
 const shortName = n => (n || "").replace(/[-_.](i?q\d\w*|ud-\w+|f16|bf16)$/i, "").replace(/-gguf$/i, "");
 function renderModelBtn() {
   const b = $("#model-btn");
   b.classList.toggle("hidden", !!S.chatBuild);
+  const role = chatRole();
+  if (role === "claude" || role === "gemini") {
+    const pick = S.chatCliModel[S.chat] || "";
+    const presets = (S.cliModels && S.cliModels[role]) || DEFAULT_CLI_MODELS[role] || [];
+    const hit = presets.find(m => m.id === pick);
+    const label = hit ? hit.label : (pick || "Default");
+    b.textContent = (role === "claude" ? "⚡ " : "✦ ") + label + " ▾";
+    b.title = `CLI model for this chat: ${pick || "default"}. Click to pick a specific model (e.g. Opus 5.5, Neon) or local sub-agent model.`;
+    return;
+  }
   const pick = S.chatModel[S.chat];
-  const name = pick ? (S.modelNames || {})[pick] : chatRole() === "chat" ? (S.state.chat_model || S.state.model) : S.state.model;
+  const name = pick ? (S.modelNames || {})[pick] : role === "chat" ? (S.state.chat_model || S.state.model) : S.state.model;
   b.textContent = "◈ " + (shortName(name) || "model") + " ▾";
+  b.title = "Which local AI model this chat uses";
 }
 setInterval(renderModelBtn, 1000);
 $("#model-btn").onclick = async e => {
   const btn = e.currentTarget;  // (the event forgets its button once we await below)
   const pop = $("#model-pop");
   if (!pop.classList.contains("hidden")) return pop.classList.add("hidden");
+  const role = chatRole();
   const d = await api("/api/models");
   S.modelNames = Object.fromEntries((d.models || []).map(m => [m.path, m.name]));
-  const pick = S.chatModel[S.chat];
-  const def = chatRole() === "chat" ? (d.chat_model || S.state.model) : S.state.model;
-  pop.innerHTML = `<div class="pop-sec"><div class="label">AI model for this chat</div>
-    <button class="pop-item${pick ? "" : " on"}" data-m=""><b>Default</b><small>${esc(shortName(def) || "")} - ${chatRole() === "chat" ? "your chat model" : "your coding model"}</small></button>` +
-    (d.models || []).map(m => `<button class="pop-item${pick === m.path ? " on" : ""}" data-m="${esc(m.path)}"><b>${esc(shortName(m.name))}
-      ${m.selected ? '<span class="badge">coding</span>' : ""}${m.chat ? '<span class="badge chat">chat</span>' : ""}${m.vision ? '<span class="badge" title="Can see pictures">👁</span>' : ""}</b>
-      <small>${m.size_gb} GB · ${esc(m.why || "")}</small></button>`).join("") +
-    `<div class="muted small" style="padding:6px 8px">One model is loaded at a time - switching takes about a minute. Builds always use the coding model.</div></div>`;
-  $$("#model-pop [data-m]").forEach(x => x.onclick = () => { S.chatModel[S.chat] = x.dataset.m || undefined; pop.classList.add("hidden"); renderModelBtn(); });
+
+  if (role === "claude" || role === "gemini") {
+    const cliPick = S.chatCliModel[S.chat] || "";
+    const localPick = S.chatModel[S.chat] || "";
+    const presets = (S.cliModels && S.cliModels[role]) || DEFAULT_CLI_MODELS[role] || [];
+    pop.innerHTML = `<div class="pop-sec"><div class="label">${role === "claude" ? "Claude Code" : "Gemini CLI"} model for this chat</div>` +
+      presets.map(m => `<button class="pop-item${cliPick === m.id ? " on" : ""}" data-clim="${esc(m.id)}"><b>${esc(m.label)}</b><small>${esc(m.note || m.id)}</small></button>`).join("") +
+      `<div class="row pop-path" style="margin-top:6px"><input id="cli-custom-model" placeholder="Or type any model (e.g. neon, opus 5.5)" value="${presets.some(m => m.id === cliPick) ? "" : esc(cliPick)}" autocomplete="off"><button class="ghost small" id="cli-custom-use" type="button">Use</button></div></div>` +
+      `<div class="pop-sec"><div class="label">Local model for sub-agents</div>
+        <button class="pop-item${localPick ? "" : " on"}" data-m=""><b>Default coding model</b><small>${esc(shortName(S.state.model) || "")}</small></button>` +
+      (d.models || []).map(m => `<button class="pop-item${localPick === m.path ? " on" : ""}" data-m="${esc(m.path)}"><b>${esc(shortName(m.name))}</b><small>${m.size_gb} GB</small></button>`).join("") +
+      `</div>`;
+    $$("#model-pop [data-clim]").forEach(x => x.onclick = () => {
+      S.chatCliModel[S.chat] = x.dataset.clim || undefined;
+      pop.classList.add("hidden"); renderModelBtn();
+    });
+    const applyCustom = () => {
+      const v = ($("#cli-custom-model").value || "").trim();
+      if (!v) return;
+      S.chatCliModel[S.chat] = v;
+      pop.classList.add("hidden"); renderModelBtn();
+    };
+    $("#cli-custom-use").onclick = applyCustom;
+    $("#cli-custom-model").onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); applyCustom(); } };
+    $$("#model-pop [data-m]").forEach(x => x.onclick = () => {
+      S.chatModel[S.chat] = x.dataset.m || undefined;
+      pop.classList.add("hidden"); renderModelBtn();
+      toast(x.dataset.m ? `Local sub-agents will use ${shortName(S.modelNames[x.dataset.m] || "")}` : "Local sub-agents will use default coding model");
+    });
+  } else {
+    const pick = S.chatModel[S.chat];
+    const def = role === "chat" ? (d.chat_model || S.state.model) : S.state.model;
+    pop.innerHTML = `<div class="pop-sec"><div class="label">AI model for this chat</div>
+      <button class="pop-item${pick ? "" : " on"}" data-m=""><b>Default</b><small>${esc(shortName(def) || "")} - ${role === "chat" ? "your chat model" : "your coding model"}</small></button>` +
+      (d.models || []).map(m => `<button class="pop-item${pick === m.path ? " on" : ""}" data-m="${esc(m.path)}"><b>${esc(shortName(m.name))}
+        ${m.selected ? '<span class="badge">coding</span>' : ""}${m.chat ? '<span class="badge chat">chat</span>' : ""}${m.vision ? '<span class="badge" title="Can see pictures">👁</span>' : ""}</b>
+        <small>${m.size_gb} GB · ${esc(m.why || "")}</small></button>`).join("") +
+      `<div class="muted small" style="padding:6px 8px">One model is loaded at a time - switching takes about a minute. Builds always use the coding model.</div></div>`;
+    $$("#model-pop [data-m]").forEach(x => x.onclick = () => { S.chatModel[S.chat] = x.dataset.m || undefined; pop.classList.add("hidden"); renderModelBtn(); });
+  }
   pop.classList.remove("hidden");
   const r = btn.getBoundingClientRect();
   pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + "px";

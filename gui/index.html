@@ -181,13 +181,14 @@
       <div id="plugins-list" class="list"></div>
     </section>
 
-    <!-- CLI AGENTS (Claude Code & Gemini CLI supervising local AI sub-agents) -->
+    <!-- CLI AGENTS (Claude Code, Gemini CLI & Antigravity supervising local AI sub-agents) -->
     <section class="view hidden" id="view-cli">
-      <p class="muted">Connect <b>Claude Code</b> and <b>Gemini CLI</b> so they can spawn <b>local AI sub-agents</b> powered by the models installed on this PC — and continuously review each bot's work behind them against your instructions.</p>
+      <p class="muted">Connect <b>Claude Code</b>, <b>Gemini CLI</b>, and <b>Antigravity</b> so they can spawn <b>local AI sub-agents</b> powered by the models installed on this PC — and continuously review each bot's work behind them against your instructions.</p>
       <div class="view-actions">
-        <button class="primary" id="cli-install-all" type="button">Install /windmill plugin for both</button>
-        <button class="ghost" id="cli-refresh" type="button">Check again</button>
+        <button class="primary" id="cli-install-all" type="button">Install /windmill plugin for all</button>
+        <button class="ghost" id="cli-refresh" type="button">Check again &amp; refresh usage</button>
       </div>
+      <div id="cli-usage" class="usage-grid"></div>
       <div id="cli-providers" class="cli-grid"></div>
       <div class="card-form" id="cli-launch" style="margin-top:16px">
         <h3 style="margin:0">Launch supervised local sub-agents</h3>

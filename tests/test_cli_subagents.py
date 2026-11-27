@@ -268,3 +268,28 @@ def test_per_chat_project_sessions(tmp_path, monkeypatch):
     assert sessions.Session.load(s1.id).project == ""
     assert sessions.Session.load(s2.id).project == str(tmp_path)
 
+
+def test_antigravity_plugin_and_usage_tracking(tmp_path, monkeypatch):
+    # Antigravity install & uninstall
+    assert not cli_agents.plugin_status("antigravity", home=tmp_path)["plugin_installed"]
+    ok, _ = cli_agents.install_plugin("antigravity", home=tmp_path)
+    assert ok
+    assert cli_agents.plugin_status("antigravity", home=tmp_path)["plugin_installed"]
+    ag_cfg = json.loads((tmp_path / ".gemini" / "antigravity" / "mcp_config.json").read_text(encoding="utf-8"))
+    assert "windmill" in ag_cfg["mcpServers"]
+    assert (tmp_path / ".gemini" / "antigravity" / "skills" / "windmill" / "SKILL.md").is_file()
+
+    cli_agents.uninstall_plugin("antigravity", home=tmp_path)
+    assert not cli_agents.plugin_status("antigravity", home=tmp_path)["plugin_installed"]
+
+    # Usage tracking
+    monkeypatch.setattr(cli_agents, "USAGE_FILE", tmp_path / "cli-usage.json")
+    cli_agents.record_usage("claude", "claude-opus-5-5")
+    cli_agents.record_usage("gemini", "neon")
+    cli_agents.record_usage("subagent", "Qwen3-27B")
+    u = cli_agents.usage_summary()
+    assert u["claude"]["cli_week"] == 1 and u["claude"]["models"]["claude-opus-5-5"] == 1
+    assert u["gemini"]["cli_week"] == 1 and u["gemini"]["models"]["neon"] == 1
+    assert u["subagents"]["total"] == 1 and u["subagents"]["models"]["Qwen3-27B"] == 1
+
+

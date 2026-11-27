@@ -399,16 +399,16 @@ def cli_agents_cmd(args):
     rest = args[1:]
     if sub == "status":
         st = cli_agents.status(refresh="--refresh" in rest)
-        ui.rule("CLI Agents (Claude Code & Gemini CLI)")
-        for key in cli_agents.PROVIDERS:
+        ui.rule("CLI Agents (Claude Code, Gemini CLI & Antigravity)")
+        for key in cli_agents.ALL_PLUGINS:
             p = st["providers"][key]
             dot = ui.green("●") if p["signed_in"] else (ui.yellow("◐") if p["installed"] else ui.dim("○"))
-            auth = "signed in" if p["signed_in"] else ("installed (not signed in)" if p["installed"] else "not found")
-            plug = ui.green("plugin + /windmill installed") if p["plugin_installed"] else ui.dim("plugin not installed")
+            auth = "ready" if p["signed_in"] else ("installed (not signed in)" if p["installed"] else "not found")
+            plug = ui.green("plugin installed") if p["plugin_installed"] else ui.dim("plugin not installed")
             print(f"  {dot} {p['label']:14} {auth:26} {plug}")
             if p.get("path"):
                 print(f"    {ui.dim(p['path'])}")
-        print(ui.dim("\n  Install plugin & /windmill command:  windmill cli install [claude|gemini|all]"))
+        print(ui.dim("\n  Install plugin & /windmill command:  windmill cli install [claude|gemini|antigravity|all]"))
         print(ui.dim("  Run supervised local sub-agents:     windmill cli supervise claude \"<what to build>\""))
         print(ui.dim("  Chat via CLI with local sub-agents:  windmill cli chat claude \"/windmill <what to build>\""))
         return
@@ -417,7 +417,7 @@ def cli_agents_cmd(args):
         ok = cli_agents.install_cli(prov)
         sys.exit(0 if ok else 1)
     if sub in ("install", "uninstall"):
-        targets = rest if rest and rest[0] != "all" else list(cli_agents.PROVIDERS)
+        targets = rest if rest and rest[0] != "all" else list(cli_agents.ALL_PLUGINS)
         fn = cli_agents.install_plugin if sub == "install" else cli_agents.uninstall_plugin
         for t in targets:
             ok, msg = fn(t)

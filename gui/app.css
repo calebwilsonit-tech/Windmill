@@ -355,4 +355,9 @@ a.ghost.btn-link { border: 1px solid var(--line); color: var(--text); }
 .subagent-review.fail { border-left-color: var(--warn); }
 .sa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sa-body { margin-top: 6px; }
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.usage-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+.usage-card .label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.usage-num { font-size: 18px; font-weight: 700; }
+
 
