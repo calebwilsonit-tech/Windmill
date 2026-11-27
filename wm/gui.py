@@ -97,6 +97,7 @@ class ChatRun:
         self.events, self.cond = [], threading.Condition()
         self.busy, self.cancel = False, threading.Event()
         self.answers, self.agent = {}, None
+        self.cli_sessions = {}
 
     def push(self, ev):
         with self.cond:
@@ -108,7 +109,8 @@ class ChatRun:
         if self.agent is None or getattr(self.agent, "mode", "code") != mode:
             from .agent import Agent
             s = sessions.Session.load(self.sid)
-            self.agent = Agent(self.project, config.load(), session=s, interactive=True, mode=mode)
+            root = self.project if self.project and Path(self.project).is_dir() else str(config.HOME)
+            self.agent = Agent(root, config.load(), session=s, interactive=True, mode=mode)
             self.agent.p = EventPrinter(self)
             self.agent.llm.cancel = self.cancel
             self.agent.ask_fn = self.ask
@@ -123,19 +125,72 @@ class ChatRun:
         ev.wait(3600)
         return self.answers.pop(qid, [None, ""])[1]
 
+    def _detect_cli_request(self, text, role, cfg):
+        """Return (provider, prompt, supervised_loop) if this message should run via Claude Code / Gemini CLI."""
+        t = (text or "").strip()
+        low = t.lower()
+        default_prov = cfg.get("cli_provider") or "claude"
+        if low.startswith("/supervise "):
+            rest = t.split(" ", 1)[1].strip()
+            parts = rest.split(" ", 1)
+            if parts[0].lower() in ("claude", "gemini") and len(parts) > 1:
+                return parts[0].lower(), parts[1].strip(), True
+            return (role if role in ("claude", "gemini") else default_prov), rest, True
+        if low.startswith("/claude "):
+            return "claude", "/windmill " + t.split(" ", 1)[1].strip(), False
+        if low.startswith("/gemini "):
+            return "gemini", "/windmill " + t.split(" ", 1)[1].strip(), False
+        if low.startswith(("/windmill ", "/swarm ", "/windmill-swarm ")):
+            prov = role if role in ("claude", "gemini") else default_prov
+            return prov, t, False
+        if role in ("claude", "gemini"):
+            return role, t, False
+        return None, t, False
+
     def send(self, text, role=None, model=None, files=()):
-        """role/mode: "chat" (a general assistant: web only, no project tools or plugins) or "code" (the builder).
-        model: a model this chat picked (else: the chat model for chats if set, the coding model for code).
+        """role/mode: "chat" | "code" | "claude" | "gemini".
+        model: a local model this chat picked (also passed as preferred local sub-agent model for CLI modes).
         files: names of attachments uploaded for this message."""
         if self.busy:
             return False
         self.busy = True
         self.cancel.clear()
         cfg = config.load()
+        cli_prov, cli_prompt, supervised_loop = self._detect_cli_request(text, role, cfg)
         mode = role if role in ("chat", "code") else "chat"
+        has_project = bool(self.project and Path(self.project).is_dir())
 
         def work():
             try:
+                if (cli_prov or mode == "code") and not has_project:
+                    self.push({"type": "warn", "text": "No local folder or GitHub repo is attached to this chat yet. Click the workspace button under the message box (📁 No project ▾) to pick a local folder or GitHub repo for this chat."})
+                    return
+                if cli_prov:
+                    from . import cli_agents, subagents
+                    s = sessions.Session.load(self.sid)
+                    if s:
+                        s.add({"role": "user", "content": text})
+                    if supervised_loop:
+                        res = subagents.supervise_goal(
+                            cli_prompt, self.project, provider=cli_prov, model=model,
+                            on_event=self.push, cancel=self.cancel,
+                        )
+                        final = res.get("summary") or res.get("error") or "Done."
+                    else:
+                        res = cli_agents.run_stream(
+                            cli_prov, cli_prompt, self.project,
+                            session_id=self.cli_sessions.get(cli_prov),
+                            local_model=model, on_event=self.push, cancel=self.cancel,
+                        )
+                        if res.get("session_id"):
+                            self.cli_sessions[cli_prov] = res["session_id"]
+                        final = res.get("text") or res.get("error") or "Done."
+                    if s and final:
+                        s.add({"role": "assistant", "content": final})
+                    self.push({"type": "final", "text": final})
+                    note(f"{cli_agents.label(cli_prov)} replied", final.strip().splitlines()[0][:180] if final.strip() else "Done.")
+                    return
+
                 from . import attachments, models, server
                 full, images, shown = attachments.build(self.sid, files, text) if files else (text, [], [])
                 want = server.effective(cfg, mode, model)
@@ -550,7 +605,12 @@ def chat_messages(sid):
     for at in sorted(by_at):
         out += [{"role": "event", "ev": ev} for ev in by_at[at]]
     run = CHATS.get(sid)
-    return {"id": s.id, "title": s.title, "project": s.project, "messages": out, "build": bool(log) or isinstance(run, BuildRun),
+    git_info = {"repo": False}
+    if s.project and Path(s.project).is_dir():
+        from . import gitops
+        git_info = gitops.info(s.project)
+    return {"id": s.id, "title": s.title, "project": s.project or "", "git": git_info, "messages": out,
+            "build": bool(log) or isinstance(run, BuildRun),
             "busy": bool(run and run.busy),
             "since": len(run.events) if isinstance(run, BuildRun) and run.busy else 0}
 
@@ -895,9 +955,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": str(e)[:300]}, 502)
         if path == "/api/git":
             from . import gitops
-            return self._json(gitops.info(project()))
+            p = q.get("path", [""])[0]
+            if not p:
+                return self._json({"repo": False})
+            return self._json(gitops.info(p) if Path(p).is_dir() else {"repo": False})
         if path == "/api/projects":
-            cur = str(project())
+            cur = q.get("path", [""])[0] or ""
             rec = [x for x in config.load().get("recent_projects", []) if x != cur and Path(x).is_dir()]
             return self._json({"current": cur, "recent": rec[:12]})
         if path == "/api/tray":  # the tray icon's 15-second check-in (also keeps Windmill running in the background)
@@ -912,6 +975,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/claude":
             from . import claude
             return self._json({**claude.status(), "computer": not self._phone()})
+        if path == "/api/cli-agents":
+            from . import cli_agents, subagents
+            return self._json({
+                **cli_agents.status(),
+                "subagents": subagents.latest_state(),
+                "models": subagents.list_local_models(),
+                "computer": not self._phone(),
+            })
         if path == "/api/phone/requests":  # "<phone> wants to connect" prompts for the computer's window
             from . import phone
             return self._json([] if self._phone() else phone.pending_requests())
@@ -983,9 +1054,13 @@ class Handler(BaseHTTPRequestHandler):
             path, error = pick_folder(b.get("start") or str(project()), b.get("title") or "Choose a project folder")
             return self._json({"path": path, "error": error})
         if path == "/api/chats":
-            s = sessions.Session.new(project())
-            return self._json({"id": s.id})
-        m = re.match(r"^/api/chats/([0-9a-f]+)/(send|stop|answer|rename|delete|export)$", path)
+            proj = str(b.get("project") or "").strip()
+            if proj:
+                p = Path(proj).expanduser()
+                proj = str(p.resolve()) if p.is_dir() else ""
+            s = sessions.Session.new(proj)
+            return self._json({"id": s.id, "project": s.project})
+        m = re.match(r"^/api/chats/([0-9a-f]+)/(send|stop|answer|rename|delete|export|project)$", path)
         if m:
             sid, act = m.groups()
             if act == "delete":
@@ -996,9 +1071,33 @@ class Handler(BaseHTTPRequestHandler):
                 s = sessions.Session.load(sid)
                 s.rename(b.get("title", s.title))
                 return self._json({"ok": True})
+            if act == "project":
+                s = sessions.Session.load(sid)
+                if not s:
+                    return self._json({"error": "no chat"}, 404)
+                raw = str(b.get("path") or "").strip().strip('"')
+                if raw:
+                    p = Path(raw).expanduser()
+                    if not p.is_dir():
+                        return self._json({"error": f"{p} isn't a folder"}, 400)
+                    resolved = str(p.resolve())
+                    remember_project(resolved)
+                else:
+                    resolved = ""
+                s.set_project(resolved)
+                with LOCK:
+                    run = CHATS.get(sid)
+                    if run:
+                        run.project = resolved
+                        run.agent = None
+                        run.cli_sessions.clear()
+                from . import gitops
+                git_info = gitops.info(resolved) if resolved else {"repo": False}
+                return self._json({"ok": True, "project": resolved, "git": git_info})
             if act == "export":
                 s = sessions.Session.load(sid)
-                dest = Path(s.project) / f"chat-{sid}.md"
+                dest_dir = Path(s.project) if s.project and Path(s.project).is_dir() else config.HOME
+                dest = dest_dir / f"chat-{sid}.md"
                 sessions.export_markdown(sid, dest)
                 return self._json({"path": str(dest)})
             with LOCK:
@@ -1007,7 +1106,7 @@ class Handler(BaseHTTPRequestHandler):
                     s = sessions.Session.load(sid)
                     if not s:
                         return self._json({"error": "no chat"}, 404)
-                    run = CHATS[sid] = ChatRun(sid, s.project if Path(s.project).is_dir() else str(project()))
+                    run = CHATS[sid] = ChatRun(sid, s.project if s.project and Path(s.project).is_dir() else "")
             if act == "send":
                 ok = run.send(b.get("text", ""), b.get("role"), b.get("model"), b.get("attachments") or [])
                 return self._json({"ok": ok, "since": len(run.events)} if ok else {"error": "still working"}, 200 if ok else 409)
@@ -1146,6 +1245,63 @@ class Handler(BaseHTTPRequestHandler):
             elif act in ("save_key", "forget_key"):
                 return self._json({"error": "Do that on the computer."}, 403)
             return self._json({**res, **claude.status(), "computer": not self._phone()})
+        if path == "/api/cli-agents":
+            from . import cli_agents, subagents
+            act, prov, res = b.get("action"), b.get("provider"), {"ok": True}
+            if act == "refresh":
+                cli_agents.status(refresh=True)
+            elif act in ("install", "uninstall") and not self._phone():
+                targets = list(cli_agents.PROVIDERS) if prov == "all" else [prov]
+                fn = cli_agents.install_plugin if act == "install" else cli_agents.uninstall_plugin
+                msgs, ok_all = [], True
+                for t in targets:
+                    ok, m = fn(t)
+                    ok_all = ok_all and ok
+                    msgs.append(m)
+                res = {"ok": ok_all, "message": " ".join(msgs)}
+            elif act == "sign_in" and not self._phone():
+                err = cli_agents.sign_in(prov)
+                res = {"ok": not err, "message": err or "Sign-in window opened - finish signing in, then click Check again."}
+            elif act == "set_path" and not self._phone():
+                key = "claude_path" if prov == "claude" else ("gemini_path" if prov == "gemini" else None)
+                p = str(b.get("path") or "").strip().strip('"')
+                if not key:
+                    res = {"ok": False, "message": f"Unknown provider: {prov}"}
+                elif p and not Path(p).is_file():
+                    res = {"ok": False, "message": "There's no file at that location."}
+                else:
+                    config.set_value(key, p)
+                    cli_agents.status(refresh=True)
+                    res = {"ok": True, "message": "Path saved."}
+            elif act == "set_defaults":
+                if b.get("default_provider") in cli_agents.PROVIDERS:
+                    config.set_value("cli_provider", b["default_provider"])
+                if b.get("subagent_max_rounds") is not None:
+                    config.set_value("subagent_max_rounds", max(1, min(10, int(b["subagent_max_rounds"] or 3))))
+                if b.get("subagent_max_steps") is not None:
+                    config.set_value("subagent_max_steps", max(5, min(120, int(b["subagent_max_steps"] or 35))))
+            elif act == "start_supervise":
+                goal = str(b.get("goal") or "").strip()
+                if not goal:
+                    return self._json({"ok": False, "error": "Describe what to build first."}, 400)
+                use_prov = prov if prov in cli_agents.PROVIDERS else (config.load().get("cli_provider") or "claude")
+                mode_kind = b.get("mode") or "mcp"  # "mcp" (/windmill via CLI) or "loop" (/supervise step loop)
+                model = b.get("model") or None
+                s = sessions.Session.new(project(), title=f"[{cli_agents.label(use_prov)}] {goal[:50]}")
+                with LOCK:
+                    run = CHATS[s.id] = ChatRun(s.id, str(project()))
+                prefix = f"/supervise {use_prov} " if mode_kind == "loop" else ("/windmill-swarm " if mode_kind == "swarm" else "/windmill ")
+                run.send(prefix + goal, role=use_prov, model=model)
+                return self._json({"ok": True, "chat_id": s.id, "provider": use_prov})
+            elif act in ("install", "uninstall", "sign_in", "set_path"):
+                return self._json({"error": "Do that on the computer."}, 403)
+            return self._json({
+                **res,
+                **cli_agents.status(),
+                "subagents": subagents.latest_state(),
+                "models": subagents.list_local_models(),
+                "computer": not self._phone(),
+            })
         if self._phone() and path in ("/api/shutdown", "/api/phone", "/api/pick-folder", "/api/update/apply"):
             return self._json({"error": "Do that on the computer."}, 403)
         if path == "/api/shutdown":

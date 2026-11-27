@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.18.0 - 2026-11-27 (minor)
+- feat: add Claude Code & Gemini CLI integration with supervised local AI sub-agents, Windmill MCP server + /windmill commands, and per-chat project/GitHub workspaces
+
 ## 1.17.1 - 2026-11-16 (fix)
 - fix: Claude check finds Claude Code even when it isn't on PATH (installer folder, npm, the copy inside the Claude desktop app), with a Sign in button and a box to paste its location
 - (released automatically from the commit messages)

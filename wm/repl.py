@@ -22,6 +22,11 @@ HELP = [
     ("/run", "run your app"),
     ("/plan <task>", "big task: plan -> verified steps -> review -> mutation tests"),
     ("/best <task>", "hard task: several independent attempts, keep the best"),
+    ("/claude <task>", "Claude Code CLI supervising local AI sub-agents"),
+    ("/gemini <task>", "Gemini CLI supervising local AI sub-agents"),
+    ("/windmill <task>", "default CLI agent supervising local AI sub-agents"),
+    ("/swarm <task>", "multi-bot local AI sub-agents supervised by your CLI agent"),
+    ("/cli [install]", "CLI agents status (or install /windmill plugin into Claude/Gemini)"),
     ("/design", "show or change the project's look & feel"),
     ("/ref <topic>", "search the reference library"),
     ("/map", "project map"),
@@ -259,6 +264,18 @@ class Repl:
         elif cmd == "/compact":
             self.agent.compact(force=True)
             ui.ok("Compacted.")
+        elif cmd in ("/claude", "/gemini", "/windmill", "/swarm", "/windmill-swarm"):
+            if not arg:
+                ui.warn(f"Usage: {cmd} <what to build>")
+                return
+            from . import cli, cli_agents
+            provider = "claude" if cmd == "/claude" else ("gemini" if cmd == "/gemini" else (self.cfg.get("cli_provider") or "claude"))
+            prompt = f"/windmill-swarm {arg}" if cmd in ("/swarm", "/windmill-swarm") else f"/windmill {arg}"
+            cli_agents.run_stream(provider, prompt, self.root, on_event=cli._print_cli_event)
+            print()
+        elif cmd == "/cli":
+            from . import cli
+            cli.cli_agents_cmd(arg.split() if arg else ["status"])
         elif cmd == "/clear":
             os.system("cls" if os.name == "nt" else "clear")
         else:

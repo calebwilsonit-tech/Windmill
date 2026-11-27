@@ -26,6 +26,8 @@ COMMANDS = [
     ("get-model", "", "recommended new models for your PC (from Hugging Face, refreshed daily)"),
     ("plugins", "catalog [service]|list|add|remove|enable|disable|test|import", "connect apps & services (MCP plugins)"),
     ("connect", "[service]", "browse connectors: browser testing, Blender, Ludo, GitHub, Gmail, Notion..."),
+    ("cli", "status|install|uninstall|chat|supervise [claude|gemini] [task]", "Claude Code / Gemini CLI supervising local AI sub-agents"),
+    ("mcp-serve", "[--project <dir>]", "run Windmill's local sub-agent MCP server for Claude Code & Gemini CLI"),
     ("skills", "", "list the skills the AI can use"),
     ("git", "status|sync|pull|push|commit|connect <repo>|clone <repo>|login|logout|repos", "GitHub: save, get and send changes, change the repo"),
     ("app", "[--install]", "open the Windmill desktop app (--install: create the app + shortcuts)"),
@@ -353,6 +355,98 @@ def plugins_cmd(args):
         ui.warn("Usage: windmill plugins list|add <name> <command|url> [args]|remove|enable|disable|test <name>|import")
 
 
+def _print_cli_event(ev):
+    t = ev.get("type")
+    if t == "text":
+        sys.stdout.write(ev.get("text", ""))
+        sys.stdout.flush()
+    elif t == "phase":
+        print(f"\n  {ui.bcyan('◆')} {ui.bold(ev.get('text', ''))}")
+    elif t == "step":
+        print(f"\n  {ui.cyan('▸')} {ui.bold(ev.get('text', ''))}")
+    elif t == "subagent_start":
+        print(f"  {ui.magenta('🤖 Local Bot')} {ui.bold(ev.get('agent_name', ''))} "
+              f"{ui.dim('(' + str(ev.get('model') or 'local') + ')')} → {ui.dim(str(ev.get('task', ''))[:100])}")
+    elif t == "subagent_fix":
+        print(f"  {ui.magenta('🔧 Local Bot Fix')} {ui.bold(ev.get('agent_name', ''))} "
+              f"{ui.dim('(round ' + str(ev.get('round', '')) + ')')}")
+    elif t == "subagent_tool":
+        print(f"    {ui.dim('• ' + str(ev.get('tool', '')))}")
+    elif t == "subagent_done":
+        ok = ev.get("checks_ok")
+        badge = ui.green("checks PASS") if ok else (ui.red("checks FAIL") if ok is False else ui.dim("done"))
+        files = ", ".join(ev.get("files_changed") or [])[:80]
+        print(f"  {ui.cyan('↳')} {ev.get('agent_name', '')} finished ({badge})" + (f" · {ui.dim(files)}" if files else ""))
+    elif t == "subagent_review":
+        v = ev.get("verdict", "")
+        tag = ui.green("PASS") if v == "PASS" else ui.yellow("FIX REQUESTED")
+        print(f"  {ui.bcyan('✓ Supervisor Review')} [{tag}] {ui.dim(str(ev.get('feedback', '')).splitlines()[0][:120])}")
+    elif t == "tool":
+        print(f"  {ui.cyan('•')} {ui.dim(str(ev.get('name', '')))}")
+    elif t == "ok":
+        ui.ok(ev.get("text", ""))
+    elif t == "warn":
+        ui.warn(ev.get("text", ""))
+    elif t == "error":
+        ui.err(ev.get("text", ""))
+    elif t == "note":
+        print(f"  {ui.dim(ev.get('text', ''))}")
+
+
+def cli_agents_cmd(args):
+    from . import cli_agents, subagents
+    sub = args[0] if args else "status"
+    rest = args[1:]
+    if sub == "status":
+        st = cli_agents.status(refresh="--refresh" in rest)
+        ui.rule("CLI Agents (Claude Code & Gemini CLI)")
+        for key in cli_agents.PROVIDERS:
+            p = st["providers"][key]
+            dot = ui.green("●") if p["signed_in"] else (ui.yellow("◐") if p["installed"] else ui.dim("○"))
+            auth = "signed in" if p["signed_in"] else ("installed (not signed in)" if p["installed"] else "not found")
+            plug = ui.green("plugin + /windmill installed") if p["plugin_installed"] else ui.dim("plugin not installed")
+            print(f"  {dot} {p['label']:14} {auth:26} {plug}")
+            if p.get("path"):
+                print(f"    {ui.dim(p['path'])}")
+        print(ui.dim("\n  Install plugin & /windmill command:  windmill cli install [claude|gemini|all]"))
+        print(ui.dim("  Run supervised local sub-agents:     windmill cli supervise claude \"<what to build>\""))
+        print(ui.dim("  Chat via CLI with local sub-agents:  windmill cli chat claude \"/windmill <what to build>\""))
+        return
+    if sub in ("install", "uninstall"):
+        targets = rest if rest and rest[0] != "all" else list(cli_agents.PROVIDERS)
+        fn = cli_agents.install_plugin if sub == "install" else cli_agents.uninstall_plugin
+        for t in targets:
+            ok, msg = fn(t)
+            (ui.ok if ok else ui.err)(msg)
+        return
+    if sub == "chat":
+        provider = rest[0] if rest and rest[0] in cli_agents.PROVIDERS else (config.load().get("cli_provider") or "claude")
+        msg_args = rest[1:] if rest and rest[0] in cli_agents.PROVIDERS else rest
+        prompt = " ".join(msg_args).strip()
+        if not prompt:
+            return ui.warn('Usage: windmill cli chat [claude|gemini] "<message or /windmill task>"')
+        root = config.project_root()
+        cli_agents.run_stream(provider, prompt, root, on_event=_print_cli_event)
+        print()
+        return
+    if sub == "supervise":
+        provider = rest[0] if rest and rest[0] in cli_agents.PROVIDERS else (config.load().get("cli_provider") or "claude")
+        rem = rest[1:] if rest and rest[0] in cli_agents.PROVIDERS else rest
+        model = None
+        if "--model" in rem:
+            i = rem.index("--model")
+            if i + 1 < len(rem):
+                model = rem[i + 1]
+                rem = rem[:i] + rem[i + 2:]
+        goal = " ".join(rem).strip()
+        if not goal:
+            return ui.warn('Usage: windmill cli supervise [claude|gemini] [--model <name>] "<what to build>"')
+        root = config.project_root()
+        subagents.supervise_goal(goal, root, provider=provider, model=model, on_event=_print_cli_event)
+        return
+    ui.warn("Usage: windmill cli status|install [claude|gemini|all]|uninstall [claude|gemini|all]|chat [claude|gemini] <msg>|supervise [claude|gemini] <task>")
+
+
 def help_all():
     ui.rule("Commands")
     for c, a, d in COMMANDS:
@@ -421,6 +515,11 @@ def dispatch(argv):
         plugins_cmd(args)
     elif cmd == "connect":
         plugins_cmd(["catalog", *args])
+    elif cmd == "cli":
+        cli_agents_cmd(args)
+    elif cmd == "mcp-serve":
+        from . import mcp_server
+        mcp_server.main(args)
     elif cmd == "skills":
         from . import skills
         sk = skills.discover(config.project_root())
@@ -582,8 +681,12 @@ def ensure_app():
 
 def main():
     argv = sys.argv[1:]
+    if argv and argv[0] == "mcp-serve":
+        from . import mcp_server
+        mcp_server.main(argv[1:])
+        return
     ensure_app()
-    if not argv or argv[0] not in ("update", "version", "--version", "-v", "dev", "release", "check"):
+    if not argv or argv[0] not in ("update", "version", "--version", "-v", "dev", "release", "check", "mcp-serve"):
         try:
             from . import update
             update.maybe_auto_update(argv)

@@ -16,7 +16,11 @@ DEFAULTS = {
     "claude_check": "off",       # off | stuck | milestone | step  (Settings -> Claude check)
     "claude_via": "auto",        # auto | subscription | api
     "claude_cap_usd": 5,
-    "claude_path": "",           # where claude.exe is, if Windmill can't find it by itself         # monthly limit for the API key (0 = no limit)
+    "claude_path": "",           # where claude.exe is, if Windmill can't find it by itself
+    "gemini_path": "",           # where gemini CLI is, if Windmill can't find it by itself
+    "cli_provider": "claude",    # claude | gemini (default CLI agent supervisor)
+    "subagent_max_rounds": 3,    # max review/fix rounds per local sub-agent chunk
+    "subagent_max_steps": 35,    # max tool calls per local sub-agent run
     "model_path": None,          # chosen .gguf
     "model_name": None,
     "llama_server": None,        # path to llama-server binary

@@ -27,8 +27,8 @@ class Session:
         self.messages = messages or []
 
     @classmethod
-    def new(cls, project, title="New chat"):
-        s = cls(uuid.uuid4().hex[:10], title, str(project))
+    def new(cls, project="", title="New chat"):
+        s = cls(uuid.uuid4().hex[:10], title, str(project) if project else "")
         now = time.time()
         with db() as c:
             c.execute("INSERT INTO sessions VALUES (?,?,?,?,?,0,'')", (s.id, title, s.project, now, now))
@@ -73,6 +73,11 @@ class Session:
         self.title = title
         with db() as c:
             c.execute("UPDATE sessions SET title=? WHERE id=?", (title, self.id))
+
+    def set_project(self, project):
+        self.project = str(project) if project else ""
+        with db() as c:
+            c.execute("UPDATE sessions SET project=? WHERE id=?", (self.project, self.id))
 
 
 def make_title(text):

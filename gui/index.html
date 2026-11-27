@@ -17,17 +17,7 @@
       <button class="icon-btn" id="theme-btn" title="Light / dark">◐</button>
     </div>
     <button class="primary wide" id="new-chat">＋ New chat</button>
-    <div class="project-card" id="project-card" title="The folder Windmill works in">
-      <div class="label">Project</div>
-      <div class="name" id="project-name">…</div>
-      <div class="kinds" id="project-kinds"></div>
-      <div class="row">
-        <button class="ghost small" id="pick-project">Change ▾</button>
-        <button class="ghost small" data-task="new" title="Describe an idea - Windmill plans and builds it">New project</button>
-      </div>
-    </div>
     <input id="chat-search" type="search" placeholder="Search chats…" autocomplete="off">
-    <div class="seg" id="chat-scope"><button data-here="1" class="on">This project</button><button data-here="0">All chats</button></div>
     <nav id="chat-list" aria-label="Chats"></nav>
     <div class="nav-bottom">
       <button class="nav" data-view="home">⌂ Home</button>
@@ -36,6 +26,7 @@
       <button class="nav" data-view="console">▤ Commands <span class="kbd">Ctrl K</span></button>
       <button class="nav" data-view="models">◈ AI models</button>
       <button class="nav" data-view="plugins">⧉ Plugins</button>
+      <button class="nav" data-view="cli">⌨ CLI agents</button>
       <button class="nav" data-view="skills">✦ Skills</button>
       <button class="nav" data-view="phone">📱 Phone</button>
       <button class="nav" data-view="settings">⚙ Settings</button>
@@ -68,7 +59,7 @@
         <div id="tip" class="tip hidden"></div>
       </div>
       <div class="cards">
-        <button class="card" data-action="chat"><b>Build in this project</b><span>Code mode - like Claude Code</span></button>
+        <button class="card" data-action="chat"><b>New chat</b><span>General chat, or attach a local folder or GitHub repo</span></button>
         <button class="card" data-task="new"><b>Start a new project</b><span>Describe your idea - Windmill does the rest</span></button>
         <button class="card hidden" id="card-build" data-task="build"><b>Continue building</b><span>Autopilot through the roadmap</span></button>
         <button class="card" data-task="debug"><b>Fix a problem</b><span>Reproduce → root cause → fix</span></button>
@@ -190,6 +181,47 @@
       <div id="plugins-list" class="list"></div>
     </section>
 
+    <!-- CLI AGENTS (Claude Code & Gemini CLI supervising local AI sub-agents) -->
+    <section class="view hidden" id="view-cli">
+      <p class="muted">Connect <b>Claude Code</b> and <b>Gemini CLI</b> so they can spawn <b>local AI sub-agents</b> powered by the models installed on this PC — and continuously review each bot's work behind them against your instructions.</p>
+      <div class="view-actions">
+        <button class="primary" id="cli-install-all" type="button">Install /windmill plugin for both</button>
+        <button class="ghost" id="cli-refresh" type="button">Check again</button>
+      </div>
+      <div id="cli-providers" class="cli-grid"></div>
+      <div class="card-form" id="cli-launch" style="margin-top:16px">
+        <h3 style="margin:0">Launch supervised local sub-agents</h3>
+        <p class="muted small" style="margin:0">Pick a CLI agent as supervisor, pick a local model for the worker bots, and describe what to build. You can also type <code>/windmill &lt;task&gt;</code> or <code>/swarm &lt;task&gt;</code> directly in any Windmill chat, or in your external Claude Code / Gemini CLI terminal.</p>
+        <div class="row" style="flex-wrap:wrap;gap:10px">
+          <label style="flex:1;min-width:160px">CLI Supervisor
+            <select id="cli-sup-provider">
+              <option value="claude">Claude Code (claude)</option>
+              <option value="gemini">Gemini CLI (gemini)</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:180px">Mode
+            <select id="cli-sup-mode">
+              <option value="mcp">/windmill — CLI drives local bots via MCP</option>
+              <option value="swarm">/windmill-swarm — Multi-bot local team</option>
+              <option value="loop">Step-by-step supervised loop</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:180px">Local model for sub-agents
+            <select id="cli-sup-model"><option value="">Default coding model</option></select>
+          </label>
+        </div>
+        <label>Instructions
+          <textarea id="cli-sup-goal" rows="3" placeholder="e.g. Build a dark-mode settings page with keyboard shortcuts and unit tests"></textarea>
+        </label>
+        <div class="row">
+          <button class="primary" id="cli-sup-go" type="button">▶ Launch in new chat</button>
+          <span class="muted small" id="cli-sup-hint">Opens a live chat showing each local sub-agent and every supervisor review.</span>
+        </div>
+      </div>
+      <h3 style="margin-top:20px">Recent local sub-agents <span class="muted small">(includes bots spawned from external Claude/Gemini terminals)</span></h3>
+      <div id="cli-subagents" class="list"></div>
+    </section>
+
     <!-- SKILLS -->
     <section class="view hidden" id="view-skills">
       <p class="muted">Skills are folders with a <code>SKILL.md</code> - instructions the AI loads when relevant (same format as Claude's skills).
@@ -280,18 +312,20 @@
     <div class="row right"><button class="ghost" type="button" id="new-cancel">Cancel</button><button class="primary" type="submit">Plan it</button></div>
   </form>
 </div>
-<div id="proj-pop" class="popover hidden" role="dialog" aria-label="Project folder">
+<div id="proj-pop" class="popover hidden" role="dialog" aria-label="Workspace for this chat">
   <div class="pop-sec">
-    <div class="label">Working in</div>
-    <div class="pop-cur"><b id="pp-name"></b><span class="muted small" id="pp-path"></span></div>
+    <div class="label">This chat's workspace</div>
+    <div class="pop-cur"><b id="pp-name">No project</b><span class="muted small" id="pp-path"></span></div>
+    <button class="pop-item hidden" id="pp-none" style="margin-top:4px">💬 No project (general chat)</button>
   </div>
   <div class="pop-sec" id="pp-recent-sec">
-    <div class="label">Recent</div>
+    <div class="label">Recent folders</div>
     <div id="pp-recent"></div>
   </div>
   <div class="pop-sec">
-    <button class="pop-item" id="pp-browse">📁 Choose a folder…</button>
-    <div class="row pop-path"><input id="proj-path" placeholder="…or paste a folder path" autocomplete="off"><button class="ghost small" id="proj-open">Open</button></div>
+    <div class="label">Local computer</div>
+    <button class="pop-item" id="pp-browse">📁 Choose a local folder…</button>
+    <div class="row pop-path"><input id="proj-path" placeholder="…or paste a folder path" autocomplete="off"><button class="ghost small" id="proj-open">Use</button></div>
     <div id="proj-error" class="small bad-text"></div>
   </div>
   <div class="pop-sec">
@@ -303,8 +337,8 @@
       <button class="ghost small" data-git="pull" title="Get the latest from GitHub">↓ Get latest</button>
       <button class="ghost small" data-git="push" title="Send your saved changes to GitHub">↑ Send</button>
     </div>
-    <div class="row pop-path"><input id="pp-repo" placeholder="Connect a repo: owner/name or URL" autocomplete="off"><button class="ghost small" id="pp-connect">Connect</button></div>
-    <div class="row pop-path"><input id="pp-clone" placeholder="Open a GitHub repo as a new project" autocomplete="off"><button class="ghost small" id="pp-clone-btn">Open</button></div>
+    <div class="row pop-path" id="pp-connect-row"><input id="pp-repo" placeholder="Connect this folder: owner/name or URL" autocomplete="off"><button class="ghost small" id="pp-connect">Connect</button></div>
+    <div class="row pop-path"><input id="pp-clone" placeholder="Open a GitHub repo in this chat (owner/name)" autocomplete="off"><button class="ghost small" id="pp-clone-btn">Open</button></div>
   </div>
 </div>
 <div id="ask-modal" class="modal hidden" role="dialog" aria-label="Windmill needs your answer">

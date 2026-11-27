@@ -22,14 +22,14 @@ setTheme((() => { try { return localStorage.getItem("wm-theme"); } catch { retur
 $("#theme-btn").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 
 // ---------------------------------------------------------------- views
-const TITLES = { phone: "Phone", projects: "Projects", library: "Code library", home: "Home", console: "Commands", models: "AI models", plugins: "Plugins", skills: "Skills", settings: "Settings", updates: "Updates" };
+const TITLES = { phone: "Phone", projects: "Projects", library: "Code library", home: "Home", console: "Commands", models: "AI models", plugins: "Plugins", cli: "CLI agents", skills: "Skills", settings: "Settings", updates: "Updates" };
 function show(view) {
   S.view = view;
   $$(".view").forEach(v => v.classList.add("hidden"));
   $(`#view-${view}`).classList.remove("hidden");
   $$(".nav").forEach(n => n.classList.toggle("active", n.dataset.view === view));
   if (view !== "chat") { $("#view-title").textContent = TITLES[view] || "Windmill"; $$(".chat-item").forEach(c => c.classList.remove("active")); }
-  ({ phone: loadPhone, projects: loadProjects, library: loadLibrary, models: loadModels, plugins: loadPlugins, skills: loadSkills, settings: loadSettings, updates: loadUpdates }[view] || (() => { }))();
+  ({ phone: loadPhone, projects: loadProjects, library: loadLibrary, models: loadModels, plugins: loadPlugins, cli: loadCliAgents, skills: loadSkills, settings: loadSettings, updates: loadUpdates }[view] || (() => { }))();
 }
 $$(".nav").forEach(n => n.onclick = () => show(n.dataset.view));
 
@@ -38,10 +38,7 @@ async function refresh() {
   const st = await api("/api/state");
   if (st.error) return;
   S.state = st;
-  $("#project-name").textContent = st.project.split(/[\\/]/).filter(Boolean).pop() || st.project;
-  $("#project-name").title = st.project;
-  $("#composer-project").textContent = st.project.split(/[\\/]/).filter(Boolean).pop() || st.project; $("#composer-folder").title = st.project + " - click to change folder or GitHub repo";
-  $("#project-kinds").innerHTML = (st.kinds.length ? st.kinds : ["empty folder"]).map(k => `<span class="badge">${esc(k)}</span>`).join("");
+  renderComposerProject();
   $("#model-name").textContent = st.model || "No model - choose one";
   $("#model-dot").classList.toggle("on", !!st.server);
   $("#model-pill").title = st.server ? "AI model is running" : "Starts automatically when needed";
@@ -79,7 +76,7 @@ setInterval(beat, 15000); document.addEventListener("visibilitychange", beat); b
 // ---------------------------------------------------------------- chats list
 async function loadChats() {
   const q = $("#chat-search").value.trim();
-  const chats = await api("/api/chats" + (q ? `?q=${encodeURIComponent(q)}` : `?here=${S.here === false ? 0 : 1}`));
+  const chats = await api("/api/chats" + (q ? `?q=${encodeURIComponent(q)}` : "?here=0"));
   if (!Array.isArray(chats)) return;
   const list = $("#chat-list");
   list.innerHTML = "";
@@ -90,7 +87,8 @@ async function loadChats() {
     if (g !== lastGroup) { list.insertAdjacentHTML("beforeend", `<div class="group-label">${g}</div>`); lastGroup = g; }
     const b = document.createElement("button");
     b.className = "chat-item" + (S.chat === c.id ? " active" : "");
-    b.innerHTML = `<span class="t">${esc(c.title)}</span><span class="m">${esc(c.project.split(/[\\/]/).pop())} · ${ago(c.updated)}</span>`;
+    const proj = c.project ? c.project.split(/[\\/]/).filter(Boolean).pop() : "General chat";
+    b.innerHTML = `<span class="t">${esc(c.title)}</span><span class="m">${esc(proj)} · ${ago(c.updated)}</span>`;
     b.onclick = () => openChat(c.id);
     b.oncontextmenu = e => { e.preventDefault(); chatMenu(c); };
     list.appendChild(b);
@@ -167,6 +165,30 @@ function setResult(el, name, text) {
   const pre = $(".out", el); pre.textContent = text; pre.classList.remove("hidden");
 }
 
+S.chatProject = {};
+S.chatGit = {};
+function currentChatProject() { return (S.chat && S.chatProject[S.chat]) || ""; }
+function renderComposerProject() {
+  const btn = $("#composer-folder"), lbl = $("#composer-project");
+  if (!btn || !lbl) return;
+  const p = currentChatProject();
+  const g = (S.chat && S.chatGit[S.chat]) || {};
+  if (!p) {
+    lbl.textContent = "No project";
+    btn.firstChild.textContent = "📁 ";
+    btn.title = "General chat (no project attached) - click to choose a local folder or GitHub repo for this chat";
+  } else if (g.repo && g.web) {
+    const repo = g.web.replace(/^https?:\/\/github\.com\//i, "");
+    lbl.textContent = repo || baseName(p);
+    btn.firstChild.textContent = "🐙 ";
+    btn.title = `${p} (${g.web}) - click to change workspace or sync with GitHub`;
+  } else {
+    lbl.textContent = baseName(p);
+    btn.firstChild.textContent = "📁 ";
+    btn.title = `${p} - click to change folder or connect to GitHub`;
+  }
+}
+
 async function openChat(id) {
   S.chat = id;
   show("chat");
@@ -174,6 +196,11 @@ async function openChat(id) {
   const data = await api(`/api/chats/${id}`);
   if (data.error) { toast(data.error); return; }
   $("#view-title").textContent = data.title;
+  S.chatProject[id] = data.project || "";
+  S.chatGit[id] = data.git || { repo: false };
+  if (!S.roles[id]) S.roles[id] = data.project ? "code" : "chat";
+  renderComposerProject();
+  renderRole();
   const t = $("#transcript"); t.innerHTML = "";
   S.chatBuild = !!data.build;
   cur = { text: null, tool: null, think: null, thought: null };
@@ -187,9 +214,12 @@ async function openChat(id) {
     else if (m.role === "result") { setResult(lastTool, lastTool?._n, m.text); lastTool = null; }
     else if (m.role === "debugger") addMsg("debugger", "⚑ " + esc(m.text.split("\n").slice(0, 3).join("\n")), "debugger");
   }
-  if (!data.messages.length) addMsg("note", chatRole() === "code"
-    ? `Code mode in <b>${esc(data.project)}</b>: ask for a feature, a fix, or anything about the code.`
-    : `Ask me anything - questions, writing, rewriting an essay. Switch to <b>🛠 Code</b> below to build or change a project.`, "note");
+  if (!data.messages.length) {
+    const p = data.project || "";
+    addMsg("note", p
+      ? `Working in <b>${esc(p)}</b>. Ask for a feature, a fix, or type <code>/windmill &lt;task&gt;</code>.`
+      : `Ask me anything — or click <b>📁 No project ▾</b> below to attach a <b>local folder</b> or a <b>GitHub repo</b> to this chat.`, "note");
+  }
   t.scrollTop = t.scrollHeight;
   cur = { text: null, tool: null, think: null, thought: null };
   setBusy(data.busy);
@@ -198,11 +228,16 @@ async function openChat(id) {
   $("#input").focus();
 }
 
-async function newChat(mode) {
-  const r = await api("/api/chats", {});
-  if (r.id) { if (mode === "code") S.roles[r.id] = "code"; await openChat(r.id); renderRole(); }
+async function newChat(mode, projectPath) {
+  const body = projectPath ? { project: projectPath } : {};
+  const r = await api("/api/chats", body);
+  if (r.id) {
+    if (mode && typeof mode === "string") S.roles[r.id] = mode;
+    await openChat(r.id);
+    renderRole();
+  }
 }
-$("#new-chat").onclick = newChat;
+$("#new-chat").onclick = () => newChat();
 
 function setBusy(b) {
   S.busy = b;
@@ -248,6 +283,37 @@ function handleEvent(ev, live = true) {
     case "debugger": thinkOff(); act("Debugger: " + ev.text.split("\n")[0].slice(0, 120)); addMsg("debugger", "⚑ debugger: " + esc(ev.text.split("\n").slice(0, 4).join("\n")), "debugger"); break;
     case "phase": thinkOff(); cur.text = null; addMsg("phase", esc(ev.text), "phase"); act(ev.text); break;
     case "step": thinkOff(); cur.text = null; addMsg("step", esc(ev.text.replace(/^\d+ (?=[A-Z])/, "")), "step"); act(ev.text); break;
+    case "subagent_start":
+    case "subagent_fix": {
+      thinkOff(); cur.text = null;
+      const isFix = ev.type === "subagent_fix";
+      const label = isFix ? `🔧 Local Bot Fix · ${ev.agent_name || ev.agent_id} (round ${ev.round || 2})` : `🤖 Local Sub-Agent · ${ev.agent_name || ev.agent_id}`;
+      addMsg("subagent", `<div class="sa-head"><b>${esc(label)}</b> <span class="badge">${esc(ev.model || "local model")}</span></div>` +
+        (ev.task ? `<div class="sa-body muted small">${esc(ev.task)}</div>` : ""), "subagent-card" + (isFix ? " fix" : ""));
+      act(`${ev.agent_name || "Local sub-agent"} is ${isFix ? "applying supervisor fixes" : "building"}…`);
+      break;
+    }
+    case "subagent_tool":
+      act(`${ev.agent_name || "Local bot"}: ${ev.tool || ""}`);
+      break;
+    case "subagent_done": {
+      thinkOff(); cur.text = null;
+      const chk = ev.checks_ok === true ? `<span class="badge ok">checks PASS</span>` : ev.checks_ok === false ? `<span class="badge bad">checks FAIL</span>` : "";
+      const files = (ev.files_changed || []).length ? `<div class="muted small">Files: ${esc((ev.files_changed || []).join(", "))}</div>` : "";
+      const body = ev.error ? `<div class="bad-text small">${esc(ev.error)}</div>` : (ev.summary ? `<div class="sa-body small">${md(ev.summary)}</div>` : "");
+      addMsg("subagent", `<div class="sa-head"><b>↳ ${esc(ev.agent_name || ev.agent_id)} finished</b> ${chk}</div>${files}${body}`, "subagent-card done");
+      act("Waiting for CLI supervisor review…");
+      break;
+    }
+    case "subagent_review": {
+      thinkOff(); cur.text = null;
+      const pass = String(ev.verdict || "").toUpperCase() === "PASS";
+      addMsg("subagent", `<div class="sa-head"><b>✓ CLI Supervisor Review</b> <span class="badge ${pass ? "ok" : "warn"}">${pass ? "PASS" : "FIX REQUESTED"}</span>` +
+        `<span class="muted small">${esc(ev.agent_name || ev.agent_id || "")}</span></div>` +
+        `<div class="sa-body small">${md(ev.feedback || "")}</div>`, "subagent-review" + (pass ? " pass" : " fail"));
+      act(pass ? "Chunk approved by supervisor" : "Sending supervisor fixes back to local sub-agent…");
+      break;
+    }
     case "log": {  // raw program output (cargo etc.): one quiet, collapsible block
       if (!cur.log) { cur.log = addMsg("logblock", `<details><summary>Output</summary><pre></pre></details>`, "logblock"); cur.log._n = 0; }
       $("pre", cur.log).textContent += ev.text + "\n"; cur.log._n++;
@@ -602,12 +668,12 @@ document.addEventListener("click", e => {
   const t = e.target.closest("[data-task]");
   if (t) { e.preventDefault(); runTask(splitArgs(t.dataset.task)); }
   const a = e.target.closest("[data-action=chat]");
-  if (a) newChat("code");
+  if (a) newChat();
 });
 
 // ---------------------------------------------------------------- command palette (Ctrl+K)
 const COMMANDS = [
-  ["chat", "New chat in this project", () => newChat()], ["new", "Start a new project (guided)"], ["build", "Build the roadmap on autopilot"],
+  ["chat", "New chat", () => newChat()], ["new", "Start a new project (guided)"], ["build", "Build the roadmap on autopilot"],
   ["run", "Run / open the app"], ["debug", "Fix a problem"], ["check", "Check the project"], ["plan", "Careful mode for a big task…", "arg"],
   ["best", "Several attempts, keep the best…", "arg"], ["design", "Look & feel"], ["history", "Chat history"], ["models", "Switch AI model"],
   ["get-model", "Get a new AI model"], ["benchmark", "Benchmark the AI"], ["tune", "Tune for my GPU"], ["server status", "Model server status"],
@@ -655,22 +721,38 @@ async function browseFolder(start, title) {
   if (r.error) toast("The folder window couldn't open - type or paste the path instead. (" + r.error + ")", 6000);
   return r.path || null;
 }
-// ---------------------------------------------------------------- project folder menu (like the folder picker in Claude's chat box)
+// ---------------------------------------------------------------- per-chat workspace & GitHub picker
 const baseName = p => (p || "").split(/[\\/]/).filter(Boolean).pop() || p;
-async function switchProject(path) {
+async function setChatProject(path) {
   path = (path || "").trim().replace(/^"|"$/g, "");
-  if (!path) return;
-  const st = await api("/api/project", { path });
-  if (st.error) { $("#proj-error").textContent = st.error; return false; }
+  if (!S.chat) {
+    const c = await api("/api/chats", path ? { project: path } : {});
+    if (c.error) { $("#proj-error").textContent = c.error; return false; }
+    closeProjPop();
+    await openChat(c.id);
+    return true;
+  }
+  const r = await api(`/api/chats/${S.chat}/project`, { path });
+  if (r.error) { $("#proj-error").textContent = r.error; return false; }
+  S.chatProject[S.chat] = r.project || "";
+  S.chatGit[S.chat] = r.git || { repo: false };
+  if (r.project && chatRole() === "chat") S.roles[S.chat] = "code";
+  if (!r.project && chatRole() === "code") S.roles[S.chat] = "chat";
   closeProjPop();
-  S.chat = null; await refresh(); if (S.view !== "chat") show("home");
+  renderComposerProject();
+  renderRole();
+  loadChats();
+  toast(r.project ? `Chat workspace: ${baseName(r.project)}` : "Detached project (general chat)");
   return true;
 }
 function closeProjPop() { $("#proj-pop").classList.add("hidden"); }
 async function openProjPop(anchor) {
   const pop = $("#proj-pop");
+  const curPath = currentChatProject();
   $("#proj-error").textContent = ""; $("#proj-path").value = "";
-  $("#pp-name").textContent = baseName(S.state.project); $("#pp-path").textContent = S.state.project;
+  $("#pp-name").textContent = curPath ? baseName(curPath) : "No project (general chat)";
+  $("#pp-path").textContent = curPath || "";
+  $("#pp-none").classList.toggle("hidden", !curPath);
   pop.classList.remove("hidden");
   const place = () => {
     const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
@@ -678,12 +760,13 @@ async function openProjPop(anchor) {
     pop.style.top = (r.top > innerHeight / 2 ? Math.max(8, r.top - h - 6) : Math.max(8, Math.min(r.bottom + 6, innerHeight - h - 8))) + "px";
   };
   place();
-  const [pr, g] = await Promise.all([api("/api/projects"), api("/api/git")]);
+  const qp = curPath ? `?path=${encodeURIComponent(curPath)}` : "";
+  const [pr, g] = await Promise.all([api("/api/projects" + qp), api("/api/git" + qp)]);
   $("#pp-recent-sec").classList.toggle("hidden", !(pr.recent || []).length);
   $("#pp-recent").innerHTML = (pr.recent || []).map(p => `<div class="pop-row"><button class="pop-item" data-path="${esc(p)}" title="${esc(p)}">📁 ${esc(baseName(p))}<small>${esc(p)}</small></button><button class="icon-btn" data-forget="${esc(p)}" title="Remove from list">✕</button></div>`).join("");
-  $$("#pp-recent [data-path]").forEach(b => b.onclick = () => switchProject(b.dataset.path));
+  $$("#pp-recent [data-path]").forEach(b => b.onclick = () => setChatProject(b.dataset.path));
   $$("#pp-recent [data-forget]").forEach(b => b.onclick = async e => { e.stopPropagation(); await api("/api/projects/forget", { path: b.dataset.forget }); b.parentElement.remove(); });
-  renderGit(g);
+  renderGit(g, !!curPath);
   place();
   renderAccount(await api("/api/github"));
   place();
@@ -710,11 +793,12 @@ async function openRepos() {
 }
 function renderRepos() {
   const q = $("#repos-search").value.toLowerCase().trim();
+  const hasFolder = !!currentChatProject();
   const list = (S.repos || []).filter(r => !q || (r.full_name + " " + r.description).toLowerCase().includes(q));
   $("#repos-list").innerHTML = list.map(r => `<div class="repo-row"><div class="repo-main"><b>${r.private ? "🔒 " : ""}${esc(r.full_name)}</b>
       <small>${esc(r.description || "")}${r.updated ? ` · updated ${ago(Date.parse(r.updated) / 1000)}` : ""}</small></div>
-      <button class="primary small" data-open="${esc(r.full_name)}" title="Download it and work in it">Open</button>
-      <button class="ghost small" data-connect="${esc(r.full_name)}" title="Make the current folder sync with this repo">Use for this folder</button></div>`).join("")
+      <button class="primary small" data-open="${esc(r.full_name)}" title="Clone and attach to this chat">Open in chat</button>
+      ${hasFolder ? `<button class="ghost small" data-connect="${esc(r.full_name)}" title="Connect this chat's folder to this repo">Connect folder</button>` : ""}</div>`).join("")
     || `<div class="muted">No repos match.</div>`;
   $$("#repos-list [data-open]").forEach(b => b.onclick = () => { $("#repos-modal").classList.add("hidden"); gitTask(["clone", b.dataset.open], "Open " + b.dataset.open); });
   $$("#repos-list [data-connect]").forEach(b => b.onclick = () => { $("#repos-modal").classList.add("hidden"); gitTask(["connect", b.dataset.connect], "Connect " + b.dataset.connect); });
@@ -725,28 +809,35 @@ document.addEventListener("mousedown", e => {
   if (S.jobsOpen && !e.target.closest("#jobs,#tasks-btn")) { S.jobsOpen = false; renderJobs(); }
 });
 $("#repos-close").onclick = () => $("#repos-modal").classList.add("hidden");
-function renderGit(g) {
-  const conn = g.repo && g.remote;
-  $("#pp-git").innerHTML = !g.repo ? `<span class="muted">Not using GitHub yet - connect a repo below (it starts version history for you).</span>`
+function renderGit(g, hasFolder = true) {
+  const conn = hasFolder && g.repo && g.remote;
+  $("#pp-git").innerHTML = !hasFolder
+    ? `<span class="muted">Open a GitHub repo below to work in it in this chat, or pick a local folder above.</span>`
+    : !g.repo ? `<span class="muted">Not using GitHub yet - connect a repo below (it starts version history for you).</span>`
     : conn ? `<a href="${esc(g.web)}" target="_blank" rel="noopener">${esc(g.web.replace(/^https?:\/\//, ""))}</a> · branch <b>${esc(g.branch || "?")}</b><br>
        <span class="muted">${g.changes} unsaved change${g.changes === 1 ? "" : "s"} · ${g.ahead} to send · ${g.behind} to get</span>`
     : `<span class="muted">Has version history, but isn't connected to GitHub - connect a repo below.</span>`;
   $("#pp-git-actions").classList.toggle("hidden", !conn);
-  $("#pp-repo").placeholder = conn ? "Change repo: owner/name or URL" : "Connect a repo: owner/name or URL";
+  $("#pp-connect-row").classList.toggle("hidden", !hasFolder);
+  $("#pp-repo").placeholder = conn ? "Change repo: owner/name or URL" : "Connect this folder: owner/name or URL";
 }
 function gitTask(args, title) {
   closeProjPop();
-  runTask(["git", ...args], { title, onExit: t => {
+  const cwd = currentChatProject() || undefined;
+  runTask(["git", ...args], { title, cwd, onExit: async t => {
     const m = strip(t.text).match(/Project ready at (.+)/);
-    if (m) switchProject(m[1].trim());
+    if (m) { await setChatProject(m[1].trim()); return; }
+    if (S.chat && currentChatProject()) {
+      S.chatGit[S.chat] = await api("/api/git?path=" + encodeURIComponent(currentChatProject()));
+      renderComposerProject();
+    }
   } });
 }
-$("#pick-project").onclick = e => openProjPop(e.currentTarget);
-$("#project-card .name").onclick = e => openProjPop(e.currentTarget);
 $("#composer-folder").onclick = e => openProjPop(e.currentTarget);
-$("#pp-browse").onclick = async () => { const p = await browseFolder(S.state.project, "Choose a project folder"); if (p) switchProject(p); };
-$("#proj-open").onclick = () => switchProject($("#proj-path").value);
-$("#proj-path").onkeydown = e => { if (e.key === "Enter") switchProject($("#proj-path").value); };
+$("#pp-none").onclick = () => setChatProject("");
+$("#pp-browse").onclick = async () => { const p = await browseFolder(currentChatProject() || S.state.project, "Choose a local folder for this chat"); if (p) setChatProject(p); };
+$("#proj-open").onclick = () => setChatProject($("#proj-path").value);
+$("#proj-path").onkeydown = e => { if (e.key === "Enter") setChatProject($("#proj-path").value); };
 $$("[data-git]").forEach(b => b.onclick = () => gitTask([b.dataset.git], { sync: "Sync with GitHub", pull: "Get latest from GitHub", push: "Send to GitHub" }[b.dataset.git]));
 $("#pp-connect").onclick = () => { const v = $("#pp-repo").value.trim(); if (v) gitTask(["connect", v], "Connect GitHub repo"); };
 $("#pp-repo").onkeydown = e => { if (e.key === "Enter") $("#pp-connect").click(); };
@@ -754,7 +845,7 @@ $("#pp-clone-btn").onclick = () => { const v = $("#pp-clone").value.trim(); if (
 $("#pp-clone").onkeydown = e => { if (e.key === "Enter") $("#pp-clone-btn").click(); };
 document.addEventListener("mousedown", e => {
   const pop = $("#proj-pop");
-  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && !e.target.closest("#pick-project,#composer-folder,#project-card .name")) closeProjPop();
+  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && !e.target.closest("#composer-folder")) closeProjPop();
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeProjPop(); });
 $("#model-pill").onclick = () => show("models");
@@ -819,6 +910,95 @@ $("#plugin-form").onsubmit = async e => {
   $(`[data-act=test][data-name="${CSS.escape(f.get("name").trim())}"]`)?.click();
 };
 $("#plugin-import").onclick = async () => { const r = await api("/api/plugins", { action: "import" }); toast(`Imported ${r.added} plugin(s)`); loadPlugins(); };
+
+// ---------------------------------------------------------------- CLI agents (Claude Code & Gemini CLI + local sub-agents)
+async function loadCliAgents(data) {
+  const r = data || await api("/api/cli-agents");
+  if (!r || r.error) return;
+  const provs = r.providers || {};
+  const cards = ["claude", "gemini"].map(k => {
+    const p = provs[k] || {};
+    const statusHtml = p.signed_in
+      ? `<span class="ok-dot">●</span> <b>Ready</b>${p.version ? ` <span class="muted small">(${esc(p.version)})</span>` : ""}`
+      : p.installed
+        ? `<span class="no-dot">○</span> <b>Installed, not signed in</b>${p.problem ? ` <span class="muted small">(${esc(p.problem)})</span>` : ""} ${r.computer ? `<button class="ghost small" data-cli-act="sign_in" data-prov="${k}" type="button">Sign in</button>` : ""}`
+        : `<span class="no-dot">○</span> <b>Not found</b> <span class="muted small">${k === "claude" ? "(install Claude Code: claude.com/code)" : "(install Gemini CLI: npm i -g @google/gemini-cli)"}</span>`;
+    const plugHtml = p.plugin_installed
+      ? `<span class="ok-dot">●</span> <b>/windmill plugin installed</b> <span class="muted small">(MCP + <code>/windmill</code> &amp; <code>/windmill-swarm</code>)</span>`
+      : `<span class="no-dot">○</span> <b>Plugin not installed</b> <span class="muted small">Install to use <code>/windmill</code> in your ${esc(p.label)} terminal</span>`;
+    return `<div class="cli-card card-form">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 style="margin:0">${k === "claude" ? "⚡" : "✦"} ${esc(p.label || k)}</h3>
+        <button class="ghost small" data-cli-chat="${k}" type="button">Open chat →</button>
+      </div>
+      <div>${statusHtml}</div>
+      <div>${plugHtml}</div>
+      ${r.computer ? `<div class="row" style="flex-wrap:wrap;gap:6px">
+        <button class="${p.plugin_installed ? "ghost" : "primary"} small" data-cli-act="install" data-prov="${k}" type="button">${p.plugin_installed ? "Reinstall plugin" : "Install /windmill plugin"}</button>
+        ${p.plugin_installed ? `<button class="ghost small" data-cli-act="uninstall" data-prov="${k}" type="button">Remove plugin</button>` : ""}
+      </div>
+      <details ${p.installed ? "" : "open"}><summary class="muted small">${p.path ? `Using: ${esc(p.path)}` : `Set ${esc(p.label)} path…`}</summary>
+        <div class="row" style="margin-top:6px"><input data-cli-path="${k}" placeholder="${k === "claude" ? "Path to claude.exe" : "Path to gemini"}" value="${esc(p.saved_path || "")}" style="flex:1">
+        <button class="ghost small" data-cli-act="set_path" data-prov="${k}" type="button">Save path</button></div>
+      </details>` : ""}
+    </div>`;
+  }).join("");
+  $("#cli-providers").innerHTML = cards;
+
+  // Wire card buttons
+  $$("[data-cli-act]", $("#cli-providers")).forEach(b => b.onclick = async () => {
+    const act = b.dataset.cliAct, provider = b.dataset.prov;
+    const body = { action: act, provider };
+    if (act === "set_path") body.path = $(`[data-cli-path="${provider}"]`).value;
+    const res = await api("/api/cli-agents", body);
+    if (res.message) toast(res.message, 6000);
+    else if (res.error) toast(res.error, 6000);
+    loadCliAgents(res);
+  });
+  $$("[data-cli-chat]", $("#cli-providers")).forEach(b => b.onclick = async () => {
+    const prov = b.dataset.cliChat;
+    const c = await api("/api/chats", {});
+    if (c.id) { S.roles[c.id] = prov; await openChat(c.id); renderRole(); }
+  });
+
+  // Populate local models dropdown
+  const msel = $("#cli-sup-model");
+  const prev = msel.value;
+  msel.innerHTML = `<option value="">Default coding model</option>` +
+    (r.models || []).map(m => `<option value="${esc(m.path)}" ${m.path === prev ? "selected" : ""}>${esc(m.name)}${m.size_gb ? ` (${m.size_gb} GB)` : ""}${m.selected ? " · default" : ""}</option>`).join("");
+  if (r.default_provider && !$("#cli-sup-provider").dataset.touched) $("#cli-sup-provider").value = r.default_provider;
+
+  // Render recent local sub-agents
+  const bots = (r.subagents && r.subagents.agents) || [];
+  $("#cli-subagents").innerHTML = bots.length
+    ? bots.map(a => `<div class="item"><div class="grow">
+        <div class="t">🤖 ${esc(a.name || a.agent_id)} <span class="badge">${esc(a.status || "")}</span> <span class="badge">${esc(a.model || "local")}</span>
+          ${a.checks_ok === true ? '<span class="badge ok">checks PASS</span>' : a.checks_ok === false ? '<span class="badge bad">checks FAIL</span>' : ""}</div>
+        <div class="s">${esc((a.task || "").slice(0, 140))}</div>
+        ${(a.files_changed || []).length ? `<div class="s muted">Files: ${esc(a.files_changed.join(", "))} · round ${a.round || 1}</div>` : ""}
+      </div></div>`).join("")
+    : `<div class="muted small">No local sub-agents have run yet. Launch one above or type <code>/windmill &lt;task&gt;</code> in Claude Code or Gemini CLI.</div>`;
+}
+$("#cli-refresh").onclick = async () => loadCliAgents(await api("/api/cli-agents", { action: "refresh" }));
+$("#cli-install-all").onclick = async () => {
+  const res = await api("/api/cli-agents", { action: "install", provider: "all" });
+  if (res.message) toast(res.message, 6000);
+  loadCliAgents(res);
+};
+$("#cli-sup-provider").onchange = e => { e.target.dataset.touched = "1"; api("/api/cli-agents", { action: "set_defaults", default_provider: e.target.value }); };
+$("#cli-sup-go").onclick = async () => {
+  const goal = $("#cli-sup-goal").value.trim();
+  if (!goal) return toast("Describe what you want built first.");
+  const provider = $("#cli-sup-provider").value;
+  const mode = $("#cli-sup-mode").value;
+  const model = $("#cli-sup-model").value || null;
+  const r = await api("/api/cli-agents", { action: "start_supervise", provider, mode, model, goal });
+  if (!r.ok) return toast(r.error || "Could not start.", 6000);
+  $("#cli-sup-goal").value = "";
+  S.roles[r.chat_id] = provider;
+  await openChat(r.chat_id);
+  renderRole();
+};
 
 // ---------------------------------------------------------------- skills
 async function loadSkills() {
@@ -1061,7 +1241,7 @@ async function openProject(path) {
 async function useProject(path) { if (S.state.project !== path) { await api("/api/project", { path }); await refresh(); loadChats(); } }
 $("#proj-back").onclick = loadProjects;
 $("#pp2-use").onclick = async () => { await useProject(S.projPage); show("home"); };
-$("#pp2-chat").onclick = async () => { await useProject(S.projPage); newChat(); };
+$("#pp2-chat").onclick = async () => { newChat("code", S.projPage); };
 $("#pp2-build").onclick = async () => { await useProject(S.projPage); startBuild(["build"]); };
 const addMilestone = async () => { const t = $("#pp2-add").value.trim(); if (!t) return; await api("/api/roadmap", { path: S.projPage, action: "add", text: t }); $("#pp2-add").value = ""; openProject(S.projPage); };
 $("#pp2-add-btn").onclick = addMilestone;
@@ -1168,20 +1348,31 @@ $("#sidebar").addEventListener("click", e => { if (e.target.closest(".nav, .chat
 renderQueue();
 
 
-// ---------------------------------------------------------------- each chat's mode: 💬 Chat (assistant) or 🛠 Code (builder)
+// ---------------------------------------------------------------- each chat's mode: 💬 Chat, 🛠 Code, ⚡ Claude CLI, ✦ Gemini CLI
 S.roles = {};
+const ROLE_ORDER = ["chat", "code", "claude", "gemini"];
+const ROLE_META = {
+  chat:   { label: "💬 Chat",       tip: () => `Chat mode: local assistant (${S.state.chat_model || S.state.model || "the AI"}). Click to switch mode.` },
+  code:   { label: "🛠 Code",       tip: () => `Code mode: local builder (${S.state.model || "coding model"}) with tools & plugins. Click to switch mode.` },
+  claude: { label: "⚡ Claude CLI", tip: () => `Claude Code CLI with Windmill local AI sub-agents. Type /windmill <task> or /swarm <task> to spawn & supervise local bots. Click to switch mode.` },
+  gemini: { label: "✦ Gemini CLI",  tip: () => `Gemini CLI with Windmill local AI sub-agents. Type /windmill <task> or /swarm <task> to spawn & supervise local bots. Click to switch mode.` },
+};
 function chatRole() { return S.roles[S.chat] || "chat"; }
 function renderRole() {
   const b = $("#role-btn");
   b.classList.toggle("hidden", !!S.chatBuild);
   const r = chatRole();
-  const chatModel = S.state.chat_model || S.state.model || "the AI";
-  b.textContent = r === "chat" ? "💬 Chat" : "🛠 Code";
-  b.title = r === "chat" ? `Chat mode: a helpful assistant for writing and questions (${chatModel}). No project changes. Click for Code mode.`
-    : `Code mode: builds and changes your project (${S.state.model || "coding model"}), with tools and plugins. Click for Chat mode.`;
+  const meta = ROLE_META[r] || ROLE_META.chat;
+  b.textContent = meta.label;
+  b.title = meta.tip();
   b.classList.toggle("code", r === "code");
+  b.classList.toggle("cli", r === "claude" || r === "gemini");
 }
-$("#role-btn").onclick = () => { S.roles[S.chat] = chatRole() === "chat" ? "code" : "chat"; renderRole(); };
+$("#role-btn").onclick = () => {
+  const cur = chatRole();
+  S.roles[S.chat] = ROLE_ORDER[(ROLE_ORDER.indexOf(cur) + 1) % ROLE_ORDER.length];
+  renderRole();
+};
 setInterval(renderRole, 1000);
 
 

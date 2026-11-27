@@ -340,3 +340,19 @@ a.ghost.btn-link { border: 1px solid var(--line); color: var(--text); }
   .activity { padding: 6px 12px; }
   input, select, textarea { font-size: 16px; }
 }
+
+/* CLI agents & local sub-agents */
+.cli-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.cli-card { display: flex; flex-direction: column; gap: 10px; }
+.badge.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.badge.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.badge.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+#role-btn.cli { border-color: var(--magenta); color: var(--magenta); }
+.subagent-card, .subagent-review { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--magenta); border-radius: var(--radius); padding: 10px 14px; margin: 6px 0; }
+.subagent-card.fix { border-left-color: var(--warn); }
+.subagent-card.done { border-left-color: var(--accent); }
+.subagent-review.pass { border-left-color: var(--ok); }
+.subagent-review.fail { border-left-color: var(--warn); }
+.sa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sa-body { margin-top: 6px; }
+
